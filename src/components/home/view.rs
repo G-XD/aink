@@ -1,0 +1,104 @@
+//! View state: list (with per-row expand) vs detail (with sub-tabs).
+
+use std::collections::HashSet;
+
+/// Sub-tab within the detail view.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum DetailTab {
+    #[default]
+    Stats,
+    Conversation,
+    Files,
+}
+
+pub const DETAIL_TAB_COUNT: usize = 3;
+
+impl DetailTab {
+    pub fn index(self) -> usize {
+        match self {
+            Self::Stats => 0,
+            Self::Conversation => 1,
+            Self::Files => 2,
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Stats => Self::Conversation,
+            Self::Conversation => Self::Files,
+            Self::Files => Self::Stats,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Self::Stats => Self::Files,
+            Self::Conversation => Self::Stats,
+            Self::Files => Self::Conversation,
+        }
+    }
+}
+
+pub const DETAIL_TAB_LABELS: &[&str] = &["Stats", "Conversation", "Files"];
+
+/// State for the detail (single-session) view, kept as a standalone struct
+/// so mutations don't require reconstructing the entire `View` enum.
+#[derive(Default)]
+pub struct DetailState {
+    pub index: usize,
+    pub active_tab: DetailTab,
+    /// Independent scroll position per sub-tab: [Stats, Conversation, Files].
+    pub tab_scrolls: [u16; DETAIL_TAB_COUNT],
+    /// Which foldable sections are expanded (by section id).
+    pub expanded_sections: HashSet<String>,
+    /// Cursor position within the Conversation tab (turn index).
+    pub conv_cursor: usize,
+}
+
+impl DetailState {
+    pub fn new(index: usize) -> Self {
+        Self {
+            index,
+            ..Default::default()
+        }
+    }
+
+    pub fn current_scroll(&self) -> u16 {
+        self.tab_scrolls[self.active_tab.index()]
+    }
+
+    pub fn set_current_scroll(&mut self, val: u16) {
+        self.tab_scrolls[self.active_tab.index()] = val;
+    }
+
+    pub fn toggle_section(&mut self, key: String) {
+        if !self.expanded_sections.remove(&key) {
+            self.expanded_sections.insert(key);
+        }
+    }
+}
+
+#[derive(Default)]
+pub enum View {
+    #[default]
+    List,
+    Detail(DetailState),
+}
+
+/// Tracks which session rows are expanded to show per-model breakdown.
+#[derive(Default)]
+pub struct ExpandState {
+    pub expanded: HashSet<usize>,
+}
+
+impl ExpandState {
+    pub fn toggle(&mut self, index: usize) {
+        if !self.expanded.remove(&index) {
+            self.expanded.insert(index);
+        }
+    }
+
+    pub fn is_expanded(&self, index: usize) -> bool {
+        self.expanded.contains(&index)
+    }
+}
