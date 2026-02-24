@@ -10,6 +10,7 @@ use ratatui::text::Line;
 
 use crate::collector::transcript::{ConversationRole, ConversationTurn};
 use crate::components::common::theme;
+use crate::utils::format::format_conversation_time;
 
 const MAX_PREVIEW_LINES: usize = 3;
 
@@ -223,12 +224,16 @@ pub fn detail_conversation_content(
             theme::body_style()
         };
 
+        let time_str = format_conversation_time(turn.created_at.as_deref());
         let counter = format!("[{}/{}]", turn_idx + 1, total);
-        let padding = w.saturating_sub(4 + role_label.len() + counter.len());
+        let padding =
+            w.saturating_sub(4 + role_label.len() + 1 + time_str.len() + 1 + counter.len());
 
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", bar), bar_style),
             Span::styled(role_label, role_style),
+            Span::raw(" "),
+            Span::styled(time_str, theme::fold_style()),
             Span::raw(" ".repeat(padding)),
             Span::styled(counter, theme::fold_style()),
         ]));

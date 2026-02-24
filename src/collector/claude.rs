@@ -450,6 +450,7 @@ fn parse_conversation(path: &Path) -> color_eyre::Result<Vec<ConversationTurn>> 
                         role: ConversationRole::User,
                         content: cleaned,
                         tool_calls: Vec::new(),
+                        created_at: entry.timestamp.clone(),
                     });
                 }
             }
@@ -460,6 +461,7 @@ fn parse_conversation(path: &Path) -> color_eyre::Result<Vec<ConversationTurn>> 
                     role: ConversationRole::Assistant,
                     content,
                     tool_calls,
+                    created_at: entry.timestamp.clone(),
                 });
             }
         }

@@ -50,8 +50,6 @@ pub fn format_last_active(ts: Option<&str>) -> String {
 
     if (y, mo, d) == now {
         format!("{:02}:{:02}", h, mi)
-    } else if is_yesterday((y, mo, d), now) {
-        "Yest.".to_string()
     } else if y == now.0 {
         format!("{:02}-{:02}", mo, d)
     } else {
@@ -98,6 +96,27 @@ fn civil_from_days(z: i32) -> (i32, i32, i32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m as i32, d as i32)
+}
+
+/// Format an ISO 8601 timestamp for conversation list: "HH:MM" or "MM-DD HH:MM".
+pub fn format_conversation_time(ts: Option<&str>) -> String {
+    let Some(ts) = ts else {
+        return "—".to_string();
+    };
+    if ts.len() < 16 {
+        return ts.to_string();
+    }
+    let y: i32 = ts[0..4].parse().unwrap_or(0);
+    let mo: u32 = ts[5..7].parse().unwrap_or(0);
+    let d: u32 = ts[8..10].parse().unwrap_or(0);
+    let h: u32 = ts[11..13].parse().unwrap_or(0);
+    let mi: u32 = ts[14..16].parse().unwrap_or(0);
+    let now = now_ymd();
+    if (y, mo, d) == now {
+        format!("{:02}:{:02}", h, mi)
+    } else {
+        format!("{:02}-{:02} {:02}:{:02}", mo, d, h, mi)
+    }
 }
 
 /// Format a USD cost to a compact string (e.g. "$1.23", "$10.5", "$100").

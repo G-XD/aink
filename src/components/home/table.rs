@@ -30,14 +30,14 @@ pub const COLUMN_WIDTHS: [Constraint; 9] = [
 pub fn table_header() -> Row<'static> {
     Row::new(vec![
         Cell::from(""),
-        Cell::from(" Source"),
-        Cell::from(" Session"),
-        Cell::from(" Models"),
-        Cell::from(" Input"),
-        Cell::from(" Output"),
-        Cell::from(" Total"),
-        Cell::from(" Active"),
-        Cell::from(" Cost"),
+        Cell::from("Source"),
+        Cell::from("Session"),
+        Cell::from("Models"),
+        Cell::from("Input"),
+        Cell::from("Output"),
+        Cell::from("Total"),
+        Cell::from("Active"),
+        Cell::from("Cost"),
     ])
     .style(theme::header_style())
     .height(1)

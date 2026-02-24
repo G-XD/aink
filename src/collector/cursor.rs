@@ -71,6 +71,8 @@ struct Bubble {
     text: String,
     #[serde(rename = "toolFormerData", default)]
     tool_former_data: Option<BubbleToolFormerData>,
+    #[serde(rename = "createdAt", default)]
+    created_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -460,7 +462,9 @@ impl LightAccumulator {
 // ── SQLite helpers ──────────────────────────────────────────────────────────
 
 /// Enrich session data from `composerData` entries in the DB:
-/// - Model name (from `modelConfig.modelName`) when per-bubble `modelInfo` was empty
+/// - Model: always merge `modelConfig.modelName` into the session set (Cursor only stores
+///   the current selection here, not history; per-bubble `modelInfo.modelName` when present
+///   gives per-message model, so together we show bubble-derived models + current selection).
 /// - Changed file list (from `originalFileStates` keys)
 fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, TranscriptData)]) {
     if sessions.is_empty() {
@@ -496,8 +500,7 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
         };
         let key = format!("composerData:{}", composer_id);
 
-        let need_model = data.models.is_empty();
-        let mut model_set = false;
+        let mut composer_model: Option<String> = None;
         let mut files: Vec<String> = Vec::new();
 
         let _ = stmt
@@ -508,14 +511,10 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
             })
             .map(|rows| {
                 for row in rows.flatten() {
-                    if !model_set
-                        && need_model
-                        && let Some(name) = &row.0
-                        && !name.is_empty()
+                    if composer_model.is_none()
+                        && let Some(name) = row.0.filter(|s| !s.is_empty())
                     {
-                        data.models.insert(name.clone());
-                        data.per_model.entry(name.clone()).or_default();
-                        model_set = true;
+                        composer_model = Some(name.clone());
                     }
                     if let Some(uri) = row.1 {
                         let path = uri.strip_prefix("file://").unwrap_or(&uri);
@@ -523,6 +522,11 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
                     }
                 }
             });
+
+        if let Some(name) = composer_model {
+            data.models.insert(name.clone());
+            data.per_model.entry(name).or_default();
+        }
 
         if !files.is_empty() {
             data.files_touched = files;
@@ -752,6 +756,7 @@ fn parse_conversation_from_db(
     let mut turns = Vec::new();
     let mut pending_text = String::new();
     let mut pending_tools: Vec<ToolCallDetail> = Vec::new();
+    let mut pending_created_at: Option<String> = None;
 
     for header in headers {
         let key = format!("bubbleId:{}:{}", composer_id, header.bubble_id);
@@ -771,18 +776,25 @@ fn parse_conversation_from_db(
 
         match bubble.bubble_type as i64 {
             BUBBLE_TYPE_USER => {
-                flush_assistant_turn(&mut turns, &mut pending_text, &mut pending_tools);
+                flush_assistant_turn(
+                    &mut turns,
+                    &mut pending_text,
+                    &mut pending_tools,
+                    std::mem::take(&mut pending_created_at),
+                );
                 let text = bubble.text.trim().to_string();
                 if !text.is_empty() {
                     turns.push(ConversationTurn {
                         role: ConversationRole::User,
                         content: text,
                         tool_calls: Vec::new(),
+                        created_at: bubble.created_at.clone(),
                     });
                 }
             }
             BUBBLE_TYPE_ASSISTANT => {
                 if let Some(ref tfd) = bubble.tool_former_data {
+                    pending_created_at = bubble.created_at.clone();
                     let name = tfd.name.as_deref().unwrap_or("unknown").to_string();
                     let summary = tfd
                         .raw_args
@@ -791,15 +803,26 @@ fn parse_conversation_from_db(
                         .unwrap_or_default();
                     pending_tools.push(ToolCallDetail { name, summary });
                 } else if !bubble.text.trim().is_empty() {
-                    flush_assistant_turn(&mut turns, &mut pending_text, &mut pending_tools);
+                    flush_assistant_turn(
+                        &mut turns,
+                        &mut pending_text,
+                        &mut pending_tools,
+                        std::mem::take(&mut pending_created_at),
+                    );
                     pending_text = bubble.text.trim().to_string();
+                    pending_created_at = bubble.created_at.clone();
                 }
             }
             _ => {}
         }
     }
 
-    flush_assistant_turn(&mut turns, &mut pending_text, &mut pending_tools);
+    flush_assistant_turn(
+        &mut turns,
+        &mut pending_text,
+        &mut pending_tools,
+        pending_created_at,
+    );
     Ok(turns)
 }
 
@@ -807,6 +830,7 @@ fn flush_assistant_turn(
     turns: &mut Vec<ConversationTurn>,
     text: &mut String,
     tools: &mut Vec<ToolCallDetail>,
+    created_at: Option<String>,
 ) {
     if text.is_empty() && tools.is_empty() {
         return;
@@ -815,6 +839,7 @@ fn flush_assistant_turn(
         role: ConversationRole::Assistant,
         content: std::mem::take(text),
         tool_calls: std::mem::take(tools),
+        created_at,
     });
 }
 

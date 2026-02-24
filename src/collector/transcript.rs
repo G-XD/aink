@@ -59,6 +59,8 @@ pub struct ConversationTurn {
     pub role: ConversationRole,
     pub content: String,
     pub tool_calls: Vec<ToolCallDetail>,
+    /// ISO 8601 timestamp when the message was sent (e.g. from `createdAt` / `timestamp`).
+    pub created_at: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
