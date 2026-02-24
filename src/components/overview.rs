@@ -27,6 +27,7 @@ fn render_separator_h(frame: &mut Frame, area: Rect) {
 /// Pre-computed aggregate data for rendering, updated only when transcripts change.
 struct OverviewCache {
     session_count: usize,
+    source_counts: Vec<(String, usize)>,
     total_input: u64,
     total_output: u64,
     total_all: u64,
@@ -62,8 +63,10 @@ impl Overview {
         let mut model_tokens: HashMap<String, u64> = HashMap::new();
         let mut tool_counts: HashMap<String, u64> = HashMap::new();
         let mut project_tokens: Vec<(String, u64)> = Vec::new();
+        let mut source_map: HashMap<String, usize> = HashMap::new();
 
         for (path, data) in data.iter() {
+            *source_map.entry(format!("{}", data.source)).or_insert(0) += 1;
             total_input += data.input_tokens;
             total_output += data.output_tokens;
             total_tools += data.tool_call_total;
@@ -93,8 +96,12 @@ impl Overview {
         let mut tools_sorted: Vec<_> = tool_counts.into_iter().collect();
         tools_sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
+        let mut source_counts: Vec<(String, usize)> = source_map.into_iter().collect();
+        source_counts.sort_by(|a, b| b.1.cmp(&a.1));
+
         self.cache = Some(OverviewCache {
             session_count: data.len(),
+            source_counts,
             total_input,
             total_output,
             total_all,
@@ -137,12 +144,29 @@ impl Component for Overview {
         ])
         .split(rows[0]);
 
+        let source_subtitle = if c.source_counts.len() > 1 {
+            let mut spans: Vec<Span> = Vec::new();
+            for (i, (name, count)) in c.source_counts.iter().enumerate() {
+                if i > 0 {
+                    spans.push(Span::styled(" · ", theme::label_style()));
+                }
+                spans.push(Span::styled(name.clone(), theme::value_style()));
+                spans.push(Span::styled(format!(" {}", count), theme::stat_secondary_style()));
+            }
+            Some(Line::from(spans).alignment(Alignment::Center))
+        } else {
+            c.source_counts.first().map(|(name, _)| {
+                Line::from(Span::styled(name.clone(), theme::value_style()))
+                    .alignment(Alignment::Center)
+            })
+        };
+
         let cards: Vec<(&str, String, Style, Option<Line<'static>>)> = vec![
             (
                 "Sessions",
                 format!("{}", c.session_count),
                 theme::stat_number_style(),
-                None,
+                source_subtitle,
             ),
             (
                 "Tokens",

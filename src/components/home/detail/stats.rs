@@ -51,7 +51,10 @@ pub fn detail_stats_content(data: &TranscriptData, width: u16) -> Vec<Line<'stat
         "—".to_string()
     };
 
+    let source_label = format!("{}", data.source);
+
     let session_rows: Vec<(&str, String, Style)> = vec![
+        ("Source", source_label, theme::value_style()),
         ("Duration", dur, theme::stat_number_style()),
         ("Started", start_display, theme::stat_number_style()),
         (

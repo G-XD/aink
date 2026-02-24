@@ -15,8 +15,9 @@ use super::view::ExpandState;
 
 pub const SESSION_NAME_MAX_LEN: usize = 36;
 
-pub const COLUMN_WIDTHS: [Constraint; 8] = [
+pub const COLUMN_WIDTHS: [Constraint; 9] = [
     Constraint::Length(3), // selection bar + expand indicator
+    Constraint::Length(7), // source
     Constraint::Min(20),   // session name
     Constraint::Min(14),   // models
     Constraint::Length(8), // input
@@ -29,8 +30,9 @@ pub const COLUMN_WIDTHS: [Constraint; 8] = [
 pub fn table_header() -> Row<'static> {
     Row::new(vec![
         Cell::from(""),
-        Cell::from("  Session"),
-        Cell::from("  Models"),
+        Cell::from(" Source"),
+        Cell::from(" Session"),
+        Cell::from(" Models"),
         Cell::from(" Input"),
         Cell::from(" Output"),
         Cell::from(" Total"),
@@ -53,6 +55,7 @@ pub fn table_row(
     let session_name = display_name.to_string();
     let model_count = data.models.len();
     let expanded = expand_state.is_expanded(index);
+    let source_kind = data.source;
 
     let expand_icon = if model_count <= 1 {
         "  "
@@ -88,6 +91,10 @@ pub fn table_row(
             } else {
                 theme::fold_style()
             },
+        ))];
+        let mut source_lines = vec![Line::from(Span::styled(
+            format!("{}", source_kind),
+            theme::value_style(),
         ))];
         let mut dur_lines = vec![Line::from(dur_str)];
         let cost_sty = theme::cost_style(data.estimated_cost_usd);
@@ -125,6 +132,7 @@ pub fn table_row(
             output_lines.push(Line::from(format_tokens(stats.output_tokens)));
             let sub_total = stats.input_tokens + stats.output_tokens;
             total_lines.push(Line::from(format_tokens(sub_total)));
+            source_lines.push(Line::from(""));
             dur_lines.push(Line::from(""));
             cost_lines.push(Line::from(""));
         }
@@ -139,6 +147,7 @@ pub fn table_row(
 
         Row::new(vec![
             Cell::from(Text::from(indicator_lines)),
+            Cell::from(Text::from(source_lines)),
             Cell::from(Text::from(name_lines)),
             Cell::from(Text::from(model_lines)),
             Cell::from(Text::from(input_lines)),
@@ -165,6 +174,10 @@ pub fn table_row(
                 } else {
                     theme::fold_style()
                 },
+            )),
+            Cell::from(Span::styled(
+                format!("{}", source_kind),
+                theme::value_style(),
             )),
             Cell::from(session_name),
             Cell::from(models_str),

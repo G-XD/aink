@@ -78,12 +78,19 @@ impl Component for TabHost {
     }
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
+        let in_detail = self.active_tab == 1 && self.sessions.is_in_detail_view();
         match &action {
             Action::TabNext => {
+                if in_detail {
+                    return Ok(None);
+                }
                 self.switch_tab((self.active_tab + 1) % TAB_COUNT);
                 Ok(Some(Action::Render))
             }
             Action::TabPrev => {
+                if in_detail {
+                    return Ok(None);
+                }
                 self.switch_tab((self.active_tab + TAB_COUNT - 1) % TAB_COUNT);
                 Ok(Some(Action::Render))
             }
@@ -136,14 +143,6 @@ impl Component for TabHost {
                 }
                 KeyCode::Char('A') => {
                     self.switch_tab(2);
-                    return Ok(Some(Action::Render));
-                }
-                KeyCode::Tab => {
-                    self.switch_tab((self.active_tab + 1) % TAB_COUNT);
-                    return Ok(Some(Action::Render));
-                }
-                KeyCode::BackTab => {
-                    self.switch_tab((self.active_tab + TAB_COUNT - 1) % TAB_COUNT);
                     return Ok(Some(Action::Render));
                 }
                 _ => {}

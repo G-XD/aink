@@ -6,6 +6,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::*;
 use ratatui::text::Line;
 
+use crate::collector::source::SourceKind;
 use crate::components::common::theme;
 use crate::components::home::view::{DETAIL_TAB_LABELS, DetailTab};
 use crate::utils::project_name;
@@ -14,18 +15,28 @@ const SESSION_NAME_MAX_LEN: usize = 36;
 
 /// Render combined header: project name (left) + sub-tab labels (right),
 /// with separator below that highlights the active tab region.
-pub fn render_detail_header(frame: &mut Frame, area: Rect, path: &Path, active_tab: DetailTab) {
+pub fn render_detail_header(
+    frame: &mut Frame,
+    area: Rect,
+    path: &Path,
+    source: SourceKind,
+    active_tab: DetailTab,
+) {
     let [header_line, sep_line] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
 
     let name = project_name::session_display_name(path, SESSION_NAME_MAX_LEN);
     let active_index = active_tab.index();
 
+    let source_badge = format!("[{}]", source);
     let breadcrumb = "Sessions \u{203a} ";
-    let prefix_len = breadcrumb.chars().count() + name.chars().count() + 4;
+    let prefix_len =
+        breadcrumb.chars().count() + source_badge.chars().count() + 1 + name.chars().count() + 4;
 
     let mut spans: Vec<Span> = vec![
         Span::styled(breadcrumb, theme::tab_inactive_style()),
+        Span::styled(source_badge, theme::value_style()),
+        Span::raw(" "),
         Span::styled(name, theme::section_title_style()),
         Span::raw("    "),
     ];

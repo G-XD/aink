@@ -419,7 +419,7 @@ impl Component for Home {
 
                     let (path, data) = &self.transcripts[ds.index];
 
-                    detail::render_detail_header(frame, header_area, path, ds.active_tab);
+                    detail::render_detail_header(frame, header_area, path, data.source, ds.active_tab);
 
                     let content = match ds.active_tab {
                         DetailTab::Stats => {
