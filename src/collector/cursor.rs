@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
+use tiktoken_rs::CoreBPE;
 use tracing::{info, warn};
 
 use super::source::{SourceKind, TranscriptSource};
@@ -210,13 +211,12 @@ impl TranscriptSource for CursorSource {
                json_extract(value, '$.modelInfo.modelName'), \
                json_extract(value, '$.toolFormerData.name'), \
                json_extract(value, '$.createdAt'), \
-               CASE WHEN json_extract(value, '$.type') = 1 \
-                    THEN substr(COALESCE(json_extract(value, '$.text'), ''), 1, 201) \
-                    ELSE NULL END \
+               COALESCE(json_extract(value, '$.text'), '') \
              FROM cursorDiskKV \
              WHERE key >= ?1 AND key < ?2",
         )?;
 
+        let bpe = tiktoken_rs::cl100k_base().expect("failed to load cl100k_base");
         let mut acc = LightAccumulator::default();
         let rows = stmt.query_map(rusqlite::params![lo, hi], |row| {
             Ok(ExtractedBubble {
@@ -227,12 +227,12 @@ impl TranscriptSource for CursorSource {
                 model_name: row.get(3)?,
                 tool_name: row.get(4)?,
                 created_at: row.get(5)?,
-                user_text: row.get(6)?,
+                text: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
             })
         })?;
 
         for row in rows.flatten() {
-            acc.accumulate(&row);
+            acc.accumulate(&row, &bpe);
         }
 
         let slug = extract_slug(path).map(|s| s.to_string());
@@ -284,12 +284,15 @@ impl TranscriptSource for CursorSource {
             .min(cid_entries.len());
         let chunk_size = cid_entries.len().div_ceil(n_threads);
 
+        let bpe = tiktoken_rs::cl100k_base().expect("failed to load cl100k_base");
+
         let results: Vec<Vec<(usize, LightAccumulator)>> = std::thread::scope(|s| {
             let handles: Vec<_> = cid_entries
                 .chunks(chunk_size)
                 .map(|chunk| {
                     let db = &db_path;
-                    s.spawn(move || scan_range(db, chunk))
+                    let bpe = &bpe;
+                    s.spawn(move || scan_range(db, chunk, bpe))
                 })
                 .collect();
 
@@ -305,11 +308,16 @@ impl TranscriptSource for CursorSource {
                 let path = &paths[idx];
                 let slug = extract_slug(path).map(|s| s.to_string());
                 let data = acc.into_transcript_data(slug);
-                if data.input_tokens > 0 || data.output_tokens > 0 {
+                if data.user_message_count > 0
+                    || data.assistant_message_count > 0
+                    || data.input_tokens > 0
+                {
                     out.push((path.clone(), data));
                 }
             }
         }
+
+        backfill_from_composer_data(&db_path, &mut out);
 
         info!(
             "[cursor load] {} threads, {} sessions → {} results: {:?}",
@@ -332,15 +340,17 @@ struct ExtractedBubble {
     model_name: Option<String>,
     tool_name: Option<String>,
     created_at: Option<String>,
-    user_text: Option<String>,
+    text: String,
 }
 
 // ── Light accumulator for bulk load (no full JSON parsing) ──────────────────
 
 #[derive(Default)]
 struct LightAccumulator {
-    input_tokens: u64,
-    output_tokens: u64,
+    db_input_tokens: u64,
+    db_output_tokens: u64,
+    tiktoken_input_tokens: u64,
+    tiktoken_output_tokens: u64,
     models: HashSet<String>,
     per_model: HashMap<String, ModelStats>,
     tool_counts: HashMap<String, u64>,
@@ -352,7 +362,7 @@ struct LightAccumulator {
 }
 
 impl LightAccumulator {
-    fn accumulate(&mut self, row: &ExtractedBubble) {
+    fn accumulate(&mut self, row: &ExtractedBubble, bpe: &CoreBPE) {
         if let Some(ref ts) = row.created_at {
             if self.start_time.is_none() || self.start_time.as_ref().is_some_and(|s| ts < s) {
                 self.start_time = Some(ts.clone());
@@ -365,16 +375,22 @@ impl LightAccumulator {
         match row.bubble_type {
             BUBBLE_TYPE_USER => {
                 self.user_message_count += 1;
-                if self.first_user_message.is_none()
-                    && let Some(ref text) = row.user_text
-                    && !text.is_empty()
-                {
-                    self.first_user_message = Some(truncate_to(text, 200));
+                if !row.text.is_empty() {
+                    self.tiktoken_input_tokens +=
+                        bpe.encode_with_special_tokens(&row.text).len() as u64;
+                    if self.first_user_message.is_none() {
+                        self.first_user_message = Some(truncate_to(&row.text, 200));
+                    }
                 }
             }
             BUBBLE_TYPE_ASSISTANT => {
-                self.input_tokens += row.input_tokens;
-                self.output_tokens += row.output_tokens;
+                self.db_input_tokens += row.input_tokens;
+                self.db_output_tokens += row.output_tokens;
+
+                if !row.text.is_empty() {
+                    self.tiktoken_output_tokens +=
+                        bpe.encode_with_special_tokens(&row.text).len() as u64;
+                }
 
                 let model_name = row.model_name.as_deref().filter(|n| !n.is_empty());
 
@@ -404,16 +420,27 @@ impl LightAccumulator {
         let tool_call_total: u64 = self.tool_counts.values().sum();
         let duration_ms = compute_duration_from_iso(&self.start_time, &self.end_time);
 
+        let input_tokens = if self.db_input_tokens > 0 {
+            self.db_input_tokens
+        } else {
+            self.tiktoken_input_tokens
+        };
+        let output_tokens = if self.db_output_tokens > 0 {
+            self.db_output_tokens
+        } else {
+            self.tiktoken_output_tokens
+        };
+
         TranscriptData {
             source: SourceKind::Cursor,
-            input_tokens: self.input_tokens,
-            output_tokens: self.output_tokens,
+            input_tokens,
+            output_tokens,
             cache_creation_tokens: 0,
             cache_read_tokens: 0,
             models: self.models,
             tool_call_total,
             tool_call_by_type: self.tool_counts,
-            files_touched: Vec::new(), // populated in detail view via parse_single_transcript
+            files_touched: Vec::new(),
             first_user_message: self.first_user_message,
             per_model: self.per_model,
             duration_ms,
@@ -423,7 +450,7 @@ impl LightAccumulator {
             start_time: self.start_time,
             end_time: self.end_time,
             agent_version: None,
-            git_branch: None, // populated in detail view
+            git_branch: None,
             slug,
             estimated_cost_usd: 0.0,
         }
@@ -431,6 +458,77 @@ impl LightAccumulator {
 }
 
 // ── SQLite helpers ──────────────────────────────────────────────────────────
+
+/// Enrich session data from `composerData` entries in the DB:
+/// - Model name (from `modelConfig.modelName`) when per-bubble `modelInfo` was empty
+/// - Changed file list (from `originalFileStates` keys)
+fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, TranscriptData)]) {
+    if sessions.is_empty() {
+        return;
+    }
+
+    let conn = match open_db(db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("backfill_composer: open db: {}", e);
+            return;
+        }
+    };
+
+    let mut stmt = match conn.prepare(
+        "SELECT json_extract(c.value, '$.modelConfig.modelName'), \
+                j.key \
+         FROM cursorDiskKV AS c \
+         LEFT JOIN json_each(json_extract(c.value, '$.originalFileStates')) AS j \
+         WHERE c.key = ?1",
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!("backfill_composer: prepare: {}", e);
+            return;
+        }
+    };
+
+    for (path, data) in sessions.iter_mut() {
+        let composer_id = match extract_composer_id(path) {
+            Some(id) => id.to_string(),
+            None => continue,
+        };
+        let key = format!("composerData:{}", composer_id);
+
+        let need_model = data.models.is_empty();
+        let mut model_set = false;
+        let mut files: Vec<String> = Vec::new();
+
+        let _ = stmt
+            .query_map(rusqlite::params![key], |row| {
+                let model_name: Option<String> = row.get(0)?;
+                let file_uri: Option<String> = row.get(1)?;
+                Ok((model_name, file_uri))
+            })
+            .map(|rows| {
+                for row in rows.flatten() {
+                    if !model_set
+                        && need_model
+                        && let Some(name) = &row.0
+                        && !name.is_empty()
+                    {
+                        data.models.insert(name.clone());
+                        data.per_model.entry(name.clone()).or_default();
+                        model_set = true;
+                    }
+                    if let Some(uri) = row.1 {
+                        let path = uri.strip_prefix("file://").unwrap_or(&uri);
+                        files.push(path.to_string());
+                    }
+                }
+            });
+
+        if !files.is_empty() {
+            data.files_touched = files;
+        }
+    }
+}
 
 fn global_db_path(root: &Path) -> PathBuf {
     root.join("globalStorage").join("state.vscdb")
@@ -452,7 +550,11 @@ fn open_db(db_path: &Path) -> color_eyre::Result<Connection> {
 /// from the first composerId to just past the last, then route each row
 /// to the correct accumulator via a HashMap lookup on the composerId
 /// extracted from the key.
-fn scan_range(db_path: &Path, entries: &[(&str, usize)]) -> Vec<(usize, LightAccumulator)> {
+fn scan_range(
+    db_path: &Path,
+    entries: &[(&str, usize)],
+    bpe: &CoreBPE,
+) -> Vec<(usize, LightAccumulator)> {
     if entries.is_empty() {
         return Vec::new();
     }
@@ -482,9 +584,7 @@ fn scan_range(db_path: &Path, entries: &[(&str, usize)]) -> Vec<(usize, LightAcc
            json_extract(value, '$.modelInfo.modelName'), \
            json_extract(value, '$.toolFormerData.name'), \
            json_extract(value, '$.createdAt'), \
-           CASE WHEN json_extract(value, '$.type') = 1 \
-                THEN substr(COALESCE(json_extract(value, '$.text'), ''), 1, 201) \
-                ELSE NULL END \
+           COALESCE(json_extract(value, '$.text'), '') \
          FROM cursorDiskKV \
          WHERE key >= ?1 AND key < ?2",
     ) {
@@ -504,7 +604,7 @@ fn scan_range(db_path: &Path, entries: &[(&str, usize)]) -> Vec<(usize, LightAcc
             model_name: row.get(4)?,
             tool_name: row.get(5)?,
             created_at: row.get(6)?,
-            user_text: row.get(7)?,
+            text: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
         })
     }) {
         Ok(r) => r,
@@ -524,7 +624,7 @@ fn scan_range(db_path: &Path, entries: &[(&str, usize)]) -> Vec<(usize, LightAcc
             None => continue,
         };
         if let Some(&idx) = wanted.get(composer_id) {
-            accumulators.entry(idx).or_default().accumulate(&row);
+            accumulators.entry(idx).or_default().accumulate(&row, bpe);
         }
     }
 

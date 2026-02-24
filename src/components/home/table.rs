@@ -9,7 +9,7 @@ use ratatui::{
 
 use crate::collector::transcript::TranscriptData;
 use crate::components::common::theme;
-use crate::utils::format::{format_cost, format_duration, format_tokens};
+use crate::utils::format::{format_cost, format_last_active, format_tokens};
 
 use super::view::ExpandState;
 
@@ -23,7 +23,7 @@ pub const COLUMN_WIDTHS: [Constraint; 9] = [
     Constraint::Length(8), // input
     Constraint::Length(8), // output
     Constraint::Length(8), // total
-    Constraint::Length(7), // duration
+    Constraint::Length(8), // last active
     Constraint::Length(7), // cost
 ];
 
@@ -36,7 +36,7 @@ pub fn table_header() -> Row<'static> {
         Cell::from(" Input"),
         Cell::from(" Output"),
         Cell::from(" Total"),
-        Cell::from(" Dur."),
+        Cell::from(" Active"),
         Cell::from(" Cost"),
     ])
     .style(theme::header_style())
@@ -74,7 +74,7 @@ pub fn table_row(
         format!("{} models", model_count)
     };
 
-    let dur_str = format_duration(data.duration_ms);
+    let active_str = format_last_active(data.end_time.as_deref().or(data.start_time.as_deref()));
     let cost_str = format_cost(data.estimated_cost_usd);
 
     // Build multi-line cells if expanded
@@ -96,7 +96,7 @@ pub fn table_row(
             format!("{}", source_kind),
             theme::value_style(),
         ))];
-        let mut dur_lines = vec![Line::from(dur_str)];
+        let mut active_lines = vec![Line::from(active_str)];
         let cost_sty = theme::cost_style(data.estimated_cost_usd);
         let mut cost_lines = vec![Line::from(Span::styled(cost_str, cost_sty))];
 
@@ -133,7 +133,7 @@ pub fn table_row(
             let sub_total = stats.input_tokens + stats.output_tokens;
             total_lines.push(Line::from(format_tokens(sub_total)));
             source_lines.push(Line::from(""));
-            dur_lines.push(Line::from(""));
+            active_lines.push(Line::from(""));
             cost_lines.push(Line::from(""));
         }
 
@@ -153,7 +153,7 @@ pub fn table_row(
             Cell::from(Text::from(input_lines)),
             Cell::from(Text::from(output_lines)),
             Cell::from(Text::from(total_lines)),
-            Cell::from(Text::from(dur_lines)),
+            Cell::from(Text::from(active_lines)),
             Cell::from(Text::from(cost_lines)),
         ])
         .style(base_style)
@@ -184,7 +184,7 @@ pub fn table_row(
             Cell::from(format_tokens(data.input_tokens)),
             Cell::from(format_tokens(data.output_tokens)),
             Cell::from(format_tokens(total)),
-            Cell::from(dur_str),
+            Cell::from(active_str),
             Cell::from(Span::styled(
                 cost_str,
                 theme::cost_style(data.estimated_cost_usd),

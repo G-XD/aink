@@ -98,16 +98,17 @@ impl Home {
 
     fn finish_loading(&mut self, mut data: SessionList) {
         data.sort_by(|a, b| {
-            let t_a = std::fs::metadata(&a.0).and_then(|m| m.modified()).ok();
-            let t_b = std::fs::metadata(&b.0).and_then(|m| m.modified()).ok();
-            match (t_a, t_b) {
-                (Some(ta), Some(tb)) => tb.cmp(&ta),
-                _ => {
-                    let s_a = a.1.start_time.as_deref().unwrap_or("");
-                    let s_b = b.1.start_time.as_deref().unwrap_or("");
-                    s_b.cmp(s_a)
-                }
-            }
+            let s_a =
+                a.1.end_time
+                    .as_deref()
+                    .or(a.1.start_time.as_deref())
+                    .unwrap_or("");
+            let s_b =
+                b.1.end_time
+                    .as_deref()
+                    .or(b.1.start_time.as_deref())
+                    .unwrap_or("");
+            s_b.cmp(s_a)
         });
 
         self.transcripts = data;
@@ -419,7 +420,13 @@ impl Component for Home {
 
                     let (path, data) = &self.transcripts[ds.index];
 
-                    detail::render_detail_header(frame, header_area, path, data.source, ds.active_tab);
+                    detail::render_detail_header(
+                        frame,
+                        header_area,
+                        path,
+                        data.source,
+                        ds.active_tab,
+                    );
 
                     let content = match ds.active_tab {
                         DetailTab::Stats => {

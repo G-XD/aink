@@ -151,7 +151,10 @@ impl Component for Overview {
                     spans.push(Span::styled(" · ", theme::label_style()));
                 }
                 spans.push(Span::styled(name.clone(), theme::value_style()));
-                spans.push(Span::styled(format!(" {}", count), theme::stat_secondary_style()));
+                spans.push(Span::styled(
+                    format!(" {}", count),
+                    theme::stat_secondary_style(),
+                ));
             }
             Some(Line::from(spans).alignment(Alignment::Center))
         } else {
