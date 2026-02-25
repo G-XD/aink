@@ -127,6 +127,24 @@ impl Config {
             }
         }
 
+        // Auto-add a Codex source if the default Codex sessions directory exists
+        // and no explicit Codex source is configured.
+        if !cfg
+            .config
+            .sources
+            .iter()
+            .any(|s| s.kind == SourceKind::Codex)
+        {
+            let codex_dir = get_default_codex_dir();
+            if codex_dir.is_dir() {
+                cfg.config.sources.push(SourceConfig {
+                    kind: SourceKind::Codex,
+                    root_dir: codex_dir,
+                    enabled: true,
+                });
+            }
+        }
+
         for (mode, default_bindings) in default_config.keybindings.0.iter() {
             let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
             for (key, cmd) in default_bindings.iter() {
@@ -186,6 +204,15 @@ pub fn get_default_cursor_dir() -> PathBuf {
         }
     }
     PathBuf::from(".")
+}
+
+/// Default root directory for Codex CLI sessions.
+///
+/// All platforms: `~/.codex/sessions`
+pub fn get_default_codex_dir() -> PathBuf {
+    home_dir()
+        .map(|h| h.join(".codex").join("sessions"))
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Cross-platform home directory lookup.

@@ -18,8 +18,7 @@ pub enum SourceKind {
     #[default]
     Claude,
     Cursor,
-    // Future variants:
-    // Codex,
+    Codex,
 }
 
 impl std::fmt::Display for SourceKind {
@@ -27,6 +26,7 @@ impl std::fmt::Display for SourceKind {
         match self {
             Self::Claude => write!(f, "Claude"),
             Self::Cursor => write!(f, "Cursor"),
+            Self::Codex => write!(f, "Codex"),
         }
     }
 }
@@ -57,5 +57,6 @@ pub fn create_source(config: &SourceConfig) -> Box<dyn TranscriptSource> {
     match config.kind {
         SourceKind::Claude => Box::new(super::claude::ClaudeSource),
         SourceKind::Cursor => Box::new(super::cursor::CursorSource),
+        SourceKind::Codex => Box::new(super::codex::CodexSource),
     }
 }

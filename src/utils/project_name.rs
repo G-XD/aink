@@ -128,15 +128,42 @@ mod tests {
     }
 }
 
-/// Session display name from a transcript file path: uses parent directory name
-/// decoded via `project_display_name`, then truncates to `max_len` with "…" if needed.
-pub fn session_display_name(path: &Path, max_len: usize) -> String {
-    let folder_name = path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|p| p.to_str())
-        .unwrap_or("?");
-    let name = project_display_name(folder_name);
+/// Session display name from a transcript file path and optional slug.
+///
+/// When `slug` is provided (e.g. from `TranscriptData.slug`), it is used directly
+/// instead of deriving the name from the path. This is important for sources like
+/// Codex where the file path structure (`YYYY/MM/DD/`) doesn't encode the project name.
+///
+/// If the slug looks like a Claude-encoded path (starts with `-`), it is decoded
+/// via `project_display_name`. Otherwise it is used as-is.
+pub fn session_display_name_with_slug(
+    path: &Path,
+    slug: Option<&str>,
+    max_len: usize,
+) -> String {
+    let name = if let Some(s) = slug
+        && !s.is_empty()
+    {
+        // If the slug looks like an encoded Claude path (starts with '-'),
+        // decode it; otherwise use as-is.
+        if s.starts_with('-') {
+            project_display_name(s)
+        } else {
+            s.to_string()
+        }
+    } else {
+        let folder_name = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|p| p.to_str())
+            .unwrap_or("?");
+        project_display_name(folder_name)
+    };
+
+    truncate_display_name(&name, max_len)
+}
+
+fn truncate_display_name(name: &str, max_len: usize) -> String {
     if name.len() > max_len {
         let n = max_len.saturating_sub(1);
         let end = name
@@ -147,6 +174,6 @@ pub fn session_display_name(path: &Path, max_len: usize) -> String {
             .unwrap_or(0);
         format!("{}…", &name[..end])
     } else {
-        name
+        name.to_string()
     }
 }

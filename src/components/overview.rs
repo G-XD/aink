@@ -94,7 +94,7 @@ impl Overview {
                 *tool_counts.entry(tool.clone()).or_insert(0) += count;
             }
 
-            let name = project_name::session_display_name(path, 24);
+            let name = project_name::session_display_name_with_slug(path, data.slug.as_deref(), 24);
             *project_tokens_map.entry(name).or_insert(0) += data.input_tokens + data.output_tokens;
         }
 

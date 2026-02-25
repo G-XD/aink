@@ -21,11 +21,13 @@ pub fn render_detail_header(
     path: &Path,
     source: SourceKind,
     active_tab: DetailTab,
+    slug: Option<&str>,
 ) {
     let [header_line, sep_line] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
 
-    let name = project_name::session_display_name(path, SESSION_NAME_MAX_LEN);
+    let name =
+        project_name::session_display_name_with_slug(path, slug, SESSION_NAME_MAX_LEN);
     let active_index = active_tab.index();
 
     let source_badge = format!("[{}]", source);

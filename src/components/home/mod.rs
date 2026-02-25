@@ -115,7 +115,13 @@ impl Home {
         self.display_names = self
             .transcripts
             .iter()
-            .map(|(path, _)| project_name::session_display_name(path, table::SESSION_NAME_MAX_LEN))
+            .map(|(path, data)| {
+                project_name::session_display_name_with_slug(
+                    path,
+                    data.slug.as_deref(),
+                    table::SESSION_NAME_MAX_LEN,
+                )
+            })
             .collect();
         self.view = View::List;
         if !self.transcripts.is_empty() {
@@ -429,6 +435,7 @@ impl Component for Home {
                         path,
                         data.source,
                         ds.active_tab,
+                        data.slug.as_deref(),
                     );
 
                     let content = match ds.active_tab {

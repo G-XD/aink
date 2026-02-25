@@ -273,7 +273,7 @@ impl Analysis {
         let mut session_costs: Vec<(String, f64)> = Vec::new();
 
         for (path, data) in data.iter() {
-            let name = project_name::session_display_name(path, 20);
+            let name = project_name::session_display_name_with_slug(path, data.slug.as_deref(), 20);
             let total = data.input_tokens + data.output_tokens;
             session_tokens.push((name.clone(), total));
 
