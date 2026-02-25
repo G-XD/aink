@@ -250,7 +250,7 @@ impl Home {
                 Some(Action::Render)
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if ds.active_tab == DetailTab::Conversation && conv_len > 0 {
+                if ds.active_tab == DetailTab::Conversation && conv_len > 0 && ds.conv_cursor > 0 {
                     ds.conv_cursor = ds.conv_cursor.saturating_sub(1);
                 } else {
                     let s = ds.current_scroll();
@@ -259,7 +259,10 @@ impl Home {
                 Some(Action::Render)
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if ds.active_tab == DetailTab::Conversation && conv_len > 0 {
+                if ds.active_tab == DetailTab::Conversation
+                    && conv_len > 0
+                    && ds.conv_cursor < conv_len.saturating_sub(1)
+                {
                     ds.conv_cursor = (ds.conv_cursor + 1).min(conv_len - 1);
                 } else {
                     let s = ds.current_scroll();

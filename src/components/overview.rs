@@ -24,10 +24,18 @@ fn render_separator_h(frame: &mut Frame, area: Rect) {
     frame.render_widget(line, area);
 }
 
+/// Per-source aggregate statistics.
+struct SourceStat {
+    name: String,
+    session_count: usize,
+    total_tokens: u64,
+    estimated_cost: f64,
+}
+
 /// Pre-computed aggregate data for rendering, updated only when transcripts change.
 struct OverviewCache {
     session_count: usize,
-    source_counts: Vec<(String, usize)>,
+    source_stats: Vec<SourceStat>,
     total_input: u64,
     total_output: u64,
     total_all: u64,
@@ -62,11 +70,15 @@ impl Overview {
         let mut total_cost: f64 = 0.0;
         let mut model_tokens: HashMap<String, u64> = HashMap::new();
         let mut tool_counts: HashMap<String, u64> = HashMap::new();
-        let mut project_tokens: Vec<(String, u64)> = Vec::new();
-        let mut source_map: HashMap<String, usize> = HashMap::new();
+        let mut project_tokens_map: HashMap<String, u64> = HashMap::new();
+        let mut source_accum: HashMap<String, (usize, u64, f64)> = HashMap::new();
 
         for (path, data) in data.iter() {
-            *source_map.entry(format!("{}", data.source)).or_insert(0) += 1;
+            let src_key = format!("{}", data.source);
+            let src = source_accum.entry(src_key).or_insert((0, 0, 0.0));
+            src.0 += 1;
+            src.1 += data.input_tokens + data.output_tokens;
+            src.2 += data.estimated_cost_usd;
             total_input += data.input_tokens;
             total_output += data.output_tokens;
             total_tools += data.tool_call_total;
@@ -83,7 +95,7 @@ impl Overview {
             }
 
             let name = project_name::session_display_name(path, 24);
-            project_tokens.push((name, data.input_tokens + data.output_tokens));
+            *project_tokens_map.entry(name).or_insert(0) += data.input_tokens + data.output_tokens;
         }
 
         let total_all = total_input + total_output;
@@ -91,17 +103,26 @@ impl Overview {
         let mut models_sorted: Vec<_> = model_tokens.into_iter().collect();
         models_sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
+        let mut project_tokens: Vec<_> = project_tokens_map.into_iter().collect();
         project_tokens.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let mut tools_sorted: Vec<_> = tool_counts.into_iter().collect();
         tools_sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-        let mut source_counts: Vec<(String, usize)> = source_map.into_iter().collect();
-        source_counts.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut source_stats: Vec<SourceStat> = source_accum
+            .into_iter()
+            .map(|(name, (count, tokens, cost))| SourceStat {
+                name,
+                session_count: count,
+                total_tokens: tokens,
+                estimated_cost: cost,
+            })
+            .collect();
+        source_stats.sort_by(|a, b| b.session_count.cmp(&a.session_count));
 
         self.cache = Some(OverviewCache {
             session_count: data.len(),
-            source_counts,
+            source_stats,
             total_input,
             total_output,
             total_all,
@@ -125,12 +146,15 @@ impl Component for Overview {
         };
 
         // ── Main vertical layout ──
+        let source_row_count = c.source_stats.len().min(6);
         let rows = Layout::vertical([
             Constraint::Length(5),
             Constraint::Length(1),
-            Constraint::Min(6),
+            Constraint::Length((source_row_count + 2) as u16),
             Constraint::Length(1),
-            Constraint::Min(6),
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
         ])
         .split(area);
 
@@ -144,32 +168,12 @@ impl Component for Overview {
         ])
         .split(rows[0]);
 
-        let source_subtitle = if c.source_counts.len() > 1 {
-            let mut spans: Vec<Span> = Vec::new();
-            for (i, (name, count)) in c.source_counts.iter().enumerate() {
-                if i > 0 {
-                    spans.push(Span::styled(" · ", theme::label_style()));
-                }
-                spans.push(Span::styled(name.clone(), theme::value_style()));
-                spans.push(Span::styled(
-                    format!(" {}", count),
-                    theme::stat_secondary_style(),
-                ));
-            }
-            Some(Line::from(spans).alignment(Alignment::Center))
-        } else {
-            c.source_counts.first().map(|(name, _)| {
-                Line::from(Span::styled(name.clone(), theme::value_style()))
-                    .alignment(Alignment::Center)
-            })
-        };
-
         let cards: Vec<(&str, String, Style, Option<Line<'static>>)> = vec![
             (
                 "Sessions",
                 format!("{}", c.session_count),
                 theme::stat_number_style(),
-                source_subtitle,
+                None,
             ),
             (
                 "Tokens",
@@ -222,9 +226,64 @@ impl Component for Overview {
 
         render_separator_h(frame, rows[1]);
 
-        // ── Row 2: Models (left) / Top Projects (right) ──
+        // ── Row 2: Sources ──
+        {
+            let col_w = rows[2].width as usize;
+            let bar_width = 20usize.min(col_w.saturating_sub(50));
+            let max_sessions = c.source_stats.first().map(|s| s.session_count).unwrap_or(1);
+
+            let name_width = c
+                .source_stats
+                .iter()
+                .take(source_row_count)
+                .map(|s| s.name.len())
+                .max()
+                .unwrap_or(8)
+                .max(8)
+                .min(col_w.saturating_sub(50));
+
+            let mut lines: Vec<Line<'static>> = Vec::new();
+            lines.push(Line::from(Span::styled(
+                "  Sources",
+                theme::section_title_style(),
+            )));
+            lines.push(Line::from(""));
+
+            for stat in c.source_stats.iter().take(source_row_count) {
+                let ratio = (stat.session_count as f64 / max_sessions as f64).min(1.0);
+                let filled = (ratio * bar_width as f64).round() as usize;
+                let empty = bar_width.saturating_sub(filled);
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("{:<width$}  ", stat.name, width = name_width),
+                        theme::value_style(),
+                    ),
+                    Span::styled("\u{2588}".repeat(filled), theme::bar_filled_style()),
+                    Span::styled("\u{2591}".repeat(empty), theme::bar_empty_style()),
+                    Span::styled(
+                        format!(" {:>4} sessions", stat.session_count),
+                        theme::stat_number_style(),
+                    ),
+                    Span::styled(
+                        format!("  {:>8}", format_tokens(stat.total_tokens)),
+                        theme::stat_secondary_style(),
+                    ),
+                    Span::styled(
+                        format!("  {}", format_cost(stat.estimated_cost)),
+                        theme::cost_style(stat.estimated_cost),
+                    ),
+                ]));
+            }
+
+            frame.render_widget(Paragraph::new(lines), rows[2]);
+        }
+
+        render_separator_h(frame, rows[3]);
+
+        // ── Row 4: Models (left) / Top Projects (right) ──
         let mid_cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(rows[2]);
+            .split(rows[4]);
 
         {
             let max_rows = mid_cols[0].height.saturating_sub(2) as usize;
@@ -309,12 +368,12 @@ impl Component for Overview {
             frame.render_widget(Paragraph::new(lines), mid_cols[1]);
         }
 
-        render_separator_h(frame, rows[3]);
+        render_separator_h(frame, rows[5]);
 
-        // ── Row 4: Tool Distribution (full width) ──
+        // ── Row 6: Tool Distribution (full width) ──
         {
-            let max_rows = rows[4].height.saturating_sub(2) as usize;
-            let col_w = rows[4].width as usize;
+            let max_rows = rows[6].height.saturating_sub(2) as usize;
+            let col_w = rows[6].width as usize;
             let bar_width = 24usize.min(col_w.saturating_sub(30));
             let max_tool = c.tools_sorted.first().map(|(_, v)| *v).unwrap_or(1);
             let total_tools_sum: u64 = c.tools_sorted.iter().map(|(_, count)| count).sum();
@@ -360,7 +419,7 @@ impl Component for Overview {
                 ]));
             }
 
-            frame.render_widget(Paragraph::new(lines), rows[4]);
+            frame.render_widget(Paragraph::new(lines), rows[6]);
         }
 
         Ok(())

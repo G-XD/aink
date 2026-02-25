@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use ratatui::prelude::*;
 use ratatui::text::Line;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::collector::transcript::{ConversationRole, ConversationTurn};
 use crate::components::common::theme;
@@ -21,25 +22,30 @@ pub const SECTION_MSG_PREFIX: &str = "msg_";
 
 /// Truncate a string to fit within `max_width` display columns.
 fn truncate_to_width(s: &str, max_width: usize) -> String {
-    if s.chars().count() <= max_width {
+    if UnicodeWidthStr::width(s) <= max_width {
         return s.to_string();
     }
-    let end = s
-        .char_indices()
-        .take(max_width.saturating_sub(1))
-        .last()
-        .map(|(i, c)| i + c.len_utf8())
-        .unwrap_or(0);
+    let mut width = 0;
+    let mut end = 0;
+    for (i, c) in s.char_indices() {
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        if width + cw > max_width.saturating_sub(1) {
+            break;
+        }
+        width += cw;
+        end = i + c.len_utf8();
+    }
     format!("{}…", &s[..end])
 }
 
-/// Soft-wrap text at word boundaries to fit within `max_width` columns.
+/// Soft-wrap text at word boundaries to fit within `max_width` display columns.
 /// Falls back to character-level breaking for words longer than `max_width`.
+/// Uses unicode display width so CJK characters (2 columns each) wrap correctly.
 fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     if max_width == 0 {
         return vec![text.to_string()];
     }
-    if text.chars().count() <= max_width {
+    if UnicodeWidthStr::width(text) <= max_width {
         return vec![text.to_string()];
     }
 
@@ -48,40 +54,42 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     let mut line_width: usize = 0;
 
     for word in text.split_whitespace() {
-        let word_len = word.chars().count();
+        let word_w = UnicodeWidthStr::width(word);
 
         if line_width == 0 {
-            if word_len <= max_width {
+            if word_w <= max_width {
                 line.push_str(word);
-                line_width = word_len;
+                line_width = word_w;
             } else {
                 for ch in word.chars() {
-                    if line_width >= max_width {
+                    let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+                    if line_width + cw > max_width {
                         result.push(std::mem::take(&mut line));
                         line_width = 0;
                     }
                     line.push(ch);
-                    line_width += 1;
+                    line_width += cw;
                 }
             }
-        } else if line_width + 1 + word_len <= max_width {
+        } else if line_width + 1 + word_w <= max_width {
             line.push(' ');
             line.push_str(word);
-            line_width += 1 + word_len;
+            line_width += 1 + word_w;
         } else {
             result.push(std::mem::take(&mut line));
             line_width = 0;
-            if word_len <= max_width {
+            if word_w <= max_width {
                 line.push_str(word);
-                line_width = word_len;
+                line_width = word_w;
             } else {
                 for ch in word.chars() {
-                    if line_width >= max_width {
+                    let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+                    if line_width + cw > max_width {
                         result.push(std::mem::take(&mut line));
                         line_width = 0;
                     }
                     line.push(ch);
-                    line_width += 1;
+                    line_width += cw;
                 }
             }
         }
@@ -100,7 +108,7 @@ fn estimate_wrapped(text: &str, usable_w: usize) -> usize {
     if usable_w == 0 {
         return 1;
     }
-    let n = text.chars().count();
+    let n = UnicodeWidthStr::width(text);
     n.div_ceil(usable_w).max(1)
 }
 
@@ -147,7 +155,7 @@ pub fn detail_conversation_content(
     viewport_height: u16,
 ) -> (Vec<Line<'static>>, usize) {
     let w = width as usize;
-    let usable = w.saturating_sub(2); // 2-char left margin
+    let usable = w.saturating_sub(3); // 2-char left margin + 1-char scrollbar
 
     let Some(turns) = conversation else {
         return (
