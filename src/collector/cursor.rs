@@ -221,6 +221,8 @@ impl TranscriptSource for CursorSource {
         let bpe = tiktoken_rs::cl100k_base().expect("failed to load cl100k_base");
         let mut acc = LightAccumulator::default();
         let rows = stmt.query_map(rusqlite::params![lo, hi], |row| {
+            let text: String = row.get::<_, Option<String>>(6)?.unwrap_or_default();
+            let text_len = text.len() as u64;
             Ok(ExtractedBubble {
                 key: String::new(),
                 bubble_type: row.get::<_, Option<i64>>(0)?.unwrap_or(0),
@@ -229,7 +231,8 @@ impl TranscriptSource for CursorSource {
                 model_name: row.get(3)?,
                 tool_name: row.get(4)?,
                 created_at: row.get(5)?,
-                text: row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                text,
+                text_len,
             })
         })?;
 
@@ -343,6 +346,7 @@ struct ExtractedBubble {
     tool_name: Option<String>,
     created_at: Option<String>,
     text: String,
+    text_len: u64,
 }
 
 // ── Light accumulator for bulk load (no full JSON parsing) ──────────────────
@@ -353,6 +357,8 @@ struct LightAccumulator {
     db_output_tokens: u64,
     tiktoken_input_tokens: u64,
     tiktoken_output_tokens: u64,
+    estimated_input_tokens: u64,
+    estimated_output_tokens: u64,
     models: HashSet<String>,
     per_model: HashMap<String, ModelStats>,
     tool_counts: HashMap<String, u64>,
@@ -377,6 +383,7 @@ impl LightAccumulator {
         match row.bubble_type {
             BUBBLE_TYPE_USER => {
                 self.user_message_count += 1;
+                self.estimated_input_tokens += row.text_len / 4;
                 if !row.text.is_empty() {
                     self.tiktoken_input_tokens +=
                         bpe.encode_with_special_tokens(&row.text).len() as u64;
@@ -388,8 +395,8 @@ impl LightAccumulator {
             BUBBLE_TYPE_ASSISTANT => {
                 self.db_input_tokens += row.input_tokens;
                 self.db_output_tokens += row.output_tokens;
-
-                if !row.text.is_empty() {
+                self.estimated_output_tokens += row.text_len / 4;
+                if row.input_tokens == 0 && row.output_tokens == 0 && !row.text.is_empty() {
                     self.tiktoken_output_tokens +=
                         bpe.encode_with_special_tokens(&row.text).len() as u64;
                 }
@@ -424,13 +431,17 @@ impl LightAccumulator {
 
         let input_tokens = if self.db_input_tokens > 0 {
             self.db_input_tokens
-        } else {
+        } else if self.tiktoken_input_tokens > 0 {
             self.tiktoken_input_tokens
+        } else {
+            self.estimated_input_tokens
         };
         let output_tokens = if self.db_output_tokens > 0 {
             self.db_output_tokens
-        } else {
+        } else if self.tiktoken_output_tokens > 0 {
             self.tiktoken_output_tokens
+        } else {
+            self.estimated_output_tokens
         };
 
         TranscriptData {
@@ -479,12 +490,20 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
         }
     };
 
+    let mut cid_to_idx: HashMap<String, usize> = HashMap::with_capacity(sessions.len());
+    for (i, (path, _)) in sessions.iter().enumerate() {
+        if let Some(cid) = extract_composer_id(path) {
+            cid_to_idx.insert(cid.to_string(), i);
+        }
+    }
+
     let mut stmt = match conn.prepare(
-        "SELECT json_extract(c.value, '$.modelConfig.modelName'), \
+        "SELECT c.key, \
+                json_extract(c.value, '$.modelConfig.modelName'), \
                 j.key \
          FROM cursorDiskKV AS c \
          LEFT JOIN json_each(json_extract(c.value, '$.originalFileStates')) AS j \
-         WHERE c.key = ?1",
+         WHERE c.key >= 'composerData:' AND c.key < 'composerData;'",
     ) {
         Ok(s) => s,
         Err(e) => {
@@ -493,43 +512,39 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
         }
     };
 
-    for (path, data) in sessions.iter_mut() {
-        let composer_id = match extract_composer_id(path) {
-            Some(id) => id.to_string(),
+    let rows = match stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!("backfill_composer: query: {}", e);
+            return;
+        }
+    };
+
+    for row in rows.flatten() {
+        let (key, model, file_key) = row;
+        let cid = match key.strip_prefix("composerData:") {
+            Some(id) => id,
             None => continue,
         };
-        let key = format!("composerData:{}", composer_id);
+        let idx = match cid_to_idx.get(cid) {
+            Some(&i) => i,
+            None => continue,
+        };
 
-        let mut composer_model: Option<String> = None;
-        let mut files: Vec<String> = Vec::new();
-
-        let _ = stmt
-            .query_map(rusqlite::params![key], |row| {
-                let model_name: Option<String> = row.get(0)?;
-                let file_uri: Option<String> = row.get(1)?;
-                Ok((model_name, file_uri))
-            })
-            .map(|rows| {
-                for row in rows.flatten() {
-                    if composer_model.is_none()
-                        && let Some(name) = row.0.filter(|s| !s.is_empty())
-                    {
-                        composer_model = Some(name.clone());
-                    }
-                    if let Some(uri) = row.1 {
-                        let path = uri.strip_prefix("file://").unwrap_or(&uri);
-                        files.push(path.to_string());
-                    }
-                }
-            });
-
-        if let Some(name) = composer_model {
+        let (_, data) = &mut sessions[idx];
+        if let Some(name) = model.filter(|s| !s.is_empty()) {
             data.models.insert(name.clone());
             data.per_model.entry(name).or_default();
         }
-
-        if !files.is_empty() {
-            data.files_touched = files;
+        if let Some(uri) = file_key {
+            let path = uri.strip_prefix("file://").unwrap_or(&uri);
+            data.files_touched.push(path.to_string());
         }
     }
 }
@@ -588,7 +603,11 @@ fn scan_range(
            json_extract(value, '$.modelInfo.modelName'), \
            json_extract(value, '$.toolFormerData.name'), \
            json_extract(value, '$.createdAt'), \
-           COALESCE(json_extract(value, '$.text'), '') \
+           CASE WHEN COALESCE(json_extract(value, '$.tokenCount.inputTokens'), 0) = 0 \
+                 AND COALESCE(json_extract(value, '$.tokenCount.outputTokens'), 0) = 0 \
+                THEN COALESCE(json_extract(value, '$.text'), '') \
+                ELSE '' END, \
+           LENGTH(COALESCE(json_extract(value, '$.text'), '')) \
          FROM cursorDiskKV \
          WHERE key >= ?1 AND key < ?2",
     ) {
@@ -609,6 +628,7 @@ fn scan_range(
             tool_name: row.get(5)?,
             created_at: row.get(6)?,
             text: row.get::<_, Option<String>>(7)?.unwrap_or_default(),
+            text_len: row.get::<_, i64>(8).unwrap_or(0) as u64,
         })
     }) {
         Ok(r) => r,

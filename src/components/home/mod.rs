@@ -116,11 +116,7 @@ impl Home {
             .transcripts
             .iter()
             .map(|(path, data)| {
-                project_name::session_display_name_with_slug(
-                    path,
-                    data.slug.as_deref(),
-                    table::SESSION_NAME_MAX_LEN,
-                )
+                project_name::session_display_name(path, data, table::SESSION_NAME_MAX_LEN)
             })
             .collect();
         self.view = View::List;
@@ -429,14 +425,7 @@ impl Component for Home {
 
                     let (path, data) = &self.transcripts[ds.index];
 
-                    detail::render_detail_header(
-                        frame,
-                        header_area,
-                        path,
-                        data.source,
-                        ds.active_tab,
-                        data.slug.as_deref(),
-                    );
+                    detail::render_detail_header(frame, header_area, path, data, ds.active_tab);
 
                     let content = match ds.active_tab {
                         DetailTab::Stats => {

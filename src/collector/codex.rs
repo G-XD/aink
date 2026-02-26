@@ -414,7 +414,9 @@ fn extract_message_text(payload: &serde_json::Value) -> Option<String> {
                 .iter()
                 .filter_map(|item| {
                     let item_type = item.get("type")?.as_str()?;
-                    if item_type == "input_text" || item_type == "text" || item_type == "output_text"
+                    if item_type == "input_text"
+                        || item_type == "text"
+                        || item_type == "output_text"
                     {
                         item.get("text")?.as_str().map(|s| s.to_string())
                     } else {
@@ -559,16 +561,9 @@ fn extract_project_from_cwd(cwd: &str) -> String {
 
     // Find the first "projects marker" and take the next component(s)
     for (i, comp) in components.iter().enumerate() {
-        if PROJECT_MARKERS
-            .iter()
-            .any(|m| comp.eq_ignore_ascii_case(m))
-        {
+        if PROJECT_MARKERS.iter().any(|m| comp.eq_ignore_ascii_case(m)) {
             // Return up to 2 components after the marker (org/repo style)
-            let rest: Vec<&str> = components[i + 1..]
-                .iter()
-                .copied()
-                .take(2)
-                .collect();
+            let rest: Vec<&str> = components[i + 1..].iter().copied().take(2).collect();
             if !rest.is_empty() {
                 return rest.join("/");
             }
@@ -615,11 +610,7 @@ fn compute_duration_ms(start: Option<&str>, end: Option<&str>) -> u64 {
         let day: i64 = date_iter.next()?.parse().ok()?;
 
         let (time_sec, millis) = if let Some((sec_part, ms_part)) = time_part.split_once('.') {
-            let ms: i64 = ms_part
-                .get(..3)
-                .unwrap_or(ms_part)
-                .parse()
-                .unwrap_or(0);
+            let ms: i64 = ms_part.get(..3).unwrap_or(ms_part).parse().unwrap_or(0);
             (sec_part, ms)
         } else {
             (time_part, 0i64)
@@ -633,8 +624,7 @@ fn compute_duration_ms(start: Option<&str>, end: Option<&str>) -> u64 {
         // Days from year 0 to Jan 1 of `year` (simplified, ignoring leap seconds)
         let y = if month <= 2 { year - 1 } else { year };
         let m = if month <= 2 { month + 9 } else { month - 3 };
-        let days = 365 * y + y / 4 - y / 100 + y / 400 + (m * 306 + 5) / 10 + day - 1
-            - 719468; // epoch offset
+        let days = 365 * y + y / 4 - y / 100 + y / 400 + (m * 306 + 5) / 10 + day - 1 - 719468; // epoch offset
 
         Some(((days * 86400 + hour * 3600 + min * 60 + sec) * 1000) + millis)
     }

@@ -6,7 +6,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::*;
 use ratatui::text::Line;
 
-use crate::collector::source::SourceKind;
+use crate::collector::transcript::TranscriptData;
 use crate::components::common::theme;
 use crate::components::home::view::{DETAIL_TAB_LABELS, DetailTab};
 use crate::utils::project_name;
@@ -19,18 +19,16 @@ pub fn render_detail_header(
     frame: &mut Frame,
     area: Rect,
     path: &Path,
-    source: SourceKind,
+    data: &TranscriptData,
     active_tab: DetailTab,
-    slug: Option<&str>,
 ) {
     let [header_line, sep_line] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas(area);
 
-    let name =
-        project_name::session_display_name_with_slug(path, slug, SESSION_NAME_MAX_LEN);
+    let name = project_name::session_display_name(path, data, SESSION_NAME_MAX_LEN);
     let active_index = active_tab.index();
 
-    let source_badge = format!("[{}]", source);
+    let source_badge = format!("[{}]", data.source);
     let breadcrumb = "Sessions \u{203a} ";
     let prefix_len =
         breadcrumb.chars().count() + source_badge.chars().count() + 1 + name.chars().count() + 4;

@@ -245,6 +245,14 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
         }
     }
 
+    let slug = slug.map(|s| {
+        if s.starts_with('-') {
+            crate::utils::project_name::project_display_name(&s)
+        } else {
+            s
+        }
+    });
+
     let total: u64 = acc.tool_counts.values().sum();
     let estimated_cost_usd: f64 = acc
         .per_model

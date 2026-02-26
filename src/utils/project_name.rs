@@ -128,29 +128,20 @@ mod tests {
     }
 }
 
-/// Session display name from a transcript file path and optional slug.
+/// Session display name from a transcript file path and data.
 ///
-/// When `slug` is provided (e.g. from `TranscriptData.slug`), it is used directly
-/// instead of deriving the name from the path. This is important for sources like
-/// Codex where the file path structure (`YYYY/MM/DD/`) doesn't encode the project name.
-///
-/// If the slug looks like a Claude-encoded path (starts with `-`), it is decoded
-/// via `project_display_name`. Otherwise it is used as-is.
-pub fn session_display_name_with_slug(
+/// Uses `data.slug` directly if present (already decoded to a human-readable
+/// name at parse time by each source). Falls back to decoding the parent
+/// directory name from the path.
+pub fn session_display_name(
     path: &Path,
-    slug: Option<&str>,
+    data: &crate::collector::transcript::TranscriptData,
     max_len: usize,
 ) -> String {
-    let name = if let Some(s) = slug
+    let name = if let Some(ref s) = data.slug
         && !s.is_empty()
     {
-        // If the slug looks like an encoded Claude path (starts with '-'),
-        // decode it; otherwise use as-is.
-        if s.starts_with('-') {
-            project_display_name(s)
-        } else {
-            s.to_string()
-        }
+        s.clone()
     } else {
         let folder_name = path
             .parent()
