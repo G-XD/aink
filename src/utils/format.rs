@@ -68,22 +68,6 @@ fn now_ymd() -> (i32, u32, u32) {
     (y, mo as u32, d as u32)
 }
 
-fn is_yesterday(date: (i32, u32, u32), today: (i32, u32, u32)) -> bool {
-    let d1 = days_from_civil(date.0, date.1, date.2);
-    let d2 = days_from_civil(today.0, today.1, today.2);
-    d2 - d1 == 1
-}
-
-fn days_from_civil(y: i32, m: u32, d: u32) -> i32 {
-    let y = if m <= 2 { y - 1 } else { y };
-    let era = y.div_euclid(400);
-    let yoe = y.rem_euclid(400) as u32;
-    let m = m as i32;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d as i32 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy as u32;
-    era * 146097 + doe as i32 - 719468
-}
-
 fn civil_from_days(z: i32) -> (i32, i32, i32) {
     let z = z + 719468;
     let era = z.div_euclid(146097);

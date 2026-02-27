@@ -464,6 +464,7 @@ impl LightAccumulator {
             end_time: self.end_time,
             agent_version: None,
             git_branch: None,
+            project_name: slug.clone(),
             slug,
             estimated_cost_usd: 0.0,
         }

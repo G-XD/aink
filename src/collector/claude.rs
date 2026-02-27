@@ -78,7 +78,7 @@ impl TranscriptSource for ClaudeSource {
         if !root.is_dir() {
             return paths;
         }
-        collect_jsonl_paths(root, &mut paths);
+        super::collect_jsonl_paths(root, &mut paths, &["subagents"]);
         paths.sort_by(|a, b| {
             let t_a = std::fs::metadata(a).and_then(|m| m.modified()).ok();
             let t_b = std::fs::metadata(b).and_then(|m| m.modified()).ok();
@@ -128,26 +128,6 @@ impl TranscriptSource for ClaudeSource {
 
 // ── File discovery ──────────────────────────────────────────────────────────
 
-fn collect_jsonl_paths(dir: &Path, out: &mut Vec<PathBuf>) {
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(e) => {
-            warn!("read_dir {}: {}", dir.display(), e);
-            return;
-        }
-    };
-    for entry in read_dir.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if path.file_name().is_some_and(|n| n == "subagents") {
-                continue;
-            }
-            collect_jsonl_paths(&path, out);
-        } else if path.extension().is_some_and(|e| e == "jsonl") {
-            out.push(path);
-        }
-    }
-}
 
 // ── Transcript parsing ──────────────────────────────────────────────────────
 
@@ -281,6 +261,11 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
         agent_version,
         git_branch,
         slug,
+        project_name: path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .map(crate::utils::project_name::project_display_name),
         estimated_cost_usd,
     })
 }

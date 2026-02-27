@@ -1,5 +1,5 @@
 //! Analysis tab: four-quadrant data visualization.
-//! Token Usage, Tool Distribution, Cache Hit Rate, Cost by Session.
+//! Token Usage, Tool Distribution, Sessions by Project, Cost by Project.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,31 +17,6 @@ use crate::utils::format::{format_cost, format_tokens};
 use crate::utils::project_name;
 
 use super::Component;
-
-/// Map a value 0.0..1.0 to braille bar characters.
-fn braille_bar(ratio: f64, width: usize) -> String {
-    let chars = [
-        '\u{2800}', '\u{2840}', '\u{2844}', '\u{2846}', '\u{2847}', '\u{28c7}', '\u{28e7}',
-        '\u{28f7}', '\u{28ff}',
-    ];
-    let total_steps = width * 8;
-    let filled_steps = (ratio * total_steps as f64).round() as usize;
-    let full_chars = filled_steps / 8;
-    let remainder = filled_steps % 8;
-    let mut result = String::new();
-    for _ in 0..full_chars {
-        result.push(chars[8]);
-    }
-    if full_chars < width {
-        if remainder > 0 {
-            result.push(chars[remainder]);
-        }
-        while result.chars().count() < width {
-            result.push(chars[0]);
-        }
-    }
-    result
-}
 
 fn render_separator_h(frame: &mut Frame, area: Rect) {
     let sep = theme::SEP_DASH.repeat(area.width as usize);
@@ -61,13 +36,13 @@ fn render_separator_v(frame: &mut Frame, area: Rect) {
 }
 
 /// Render the quadrant content into a specific area.
-fn render_token_usage(frame: &mut Frame, area: Rect, session_tokens: &[(String, u64)]) {
+fn render_token_usage(frame: &mut Frame, area: Rect, project_tokens: &[(String, u64)]) {
     let max_rows = area.height.saturating_sub(2) as usize;
     let col_w = area.width as usize;
     let bar_width = 16usize.min(col_w.saturating_sub(28));
-    let max_tokens = session_tokens.first().map(|(_, t)| *t).unwrap_or(1);
+    let max_tokens = project_tokens.first().map(|(_, t)| *t).unwrap_or(1);
 
-    let name_width = session_tokens
+    let name_width = project_tokens
         .iter()
         .take(max_rows)
         .map(|(n, _)| n.len())
@@ -78,12 +53,12 @@ fn render_token_usage(frame: &mut Frame, area: Rect, session_tokens: &[(String, 
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     lines.push(Line::from(Span::styled(
-        "  Token Usage by Session",
+        "  Token Usage by Project",
         theme::section_title_style(),
     )));
     lines.push(Line::from(""));
 
-    for (name, tokens) in session_tokens.iter().take(max_rows) {
+    for (name, tokens) in project_tokens.iter().take(max_rows) {
         let ratio = (*tokens as f64 / max_tokens as f64).min(1.0);
         let filled = (ratio * bar_width as f64).round() as usize;
         let empty = bar_width.saturating_sub(filled);
@@ -152,12 +127,13 @@ fn render_tool_distribution(frame: &mut Frame, area: Rect, tools_sorted: &[(Stri
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn render_cache_hit_rate(frame: &mut Frame, area: Rect, cache_rates: &[(String, f64)]) {
+fn render_sessions_by_project(frame: &mut Frame, area: Rect, project_sessions: &[(String, u64)]) {
     let max_rows = area.height.saturating_sub(2) as usize;
     let col_w = area.width as usize;
     let bar_width = 16usize.min(col_w.saturating_sub(24));
+    let max_sessions = project_sessions.first().map(|(_, s)| *s).unwrap_or(1);
 
-    let name_width = cache_rates
+    let name_width = project_sessions
         .iter()
         .take(max_rows)
         .map(|(n, _)| n.len())
@@ -168,22 +144,25 @@ fn render_cache_hit_rate(frame: &mut Frame, area: Rect, cache_rates: &[(String, 
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     lines.push(Line::from(Span::styled(
-        "  Cache Hit Rate",
+        "  Sessions by Project",
         theme::section_title_style(),
     )));
     lines.push(Line::from(""));
 
-    for (name, rate) in cache_rates.iter().take(max_rows) {
-        let bar = braille_bar(*rate, bar_width);
+    for (name, count) in project_sessions.iter().take(max_rows) {
+        let ratio = (*count as f64 / max_sessions as f64).min(1.0);
+        let filled = (ratio * bar_width as f64).round() as usize;
+        let empty = bar_width.saturating_sub(filled);
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled(
                 format!("{:<width$}  ", name, width = name_width),
                 theme::value_style(),
             ),
-            Span::styled(bar, theme::braille_style()),
+            Span::styled("\u{2588}".repeat(filled), theme::bar_filled_style()),
+            Span::styled("\u{2591}".repeat(empty), theme::bar_empty_style()),
             Span::styled(
-                format!(" {:>4.0}%", rate * 100.0),
+                format!(" {:>5}", count),
                 theme::stat_number_style(),
             ),
         ]));
@@ -192,13 +171,13 @@ fn render_cache_hit_rate(frame: &mut Frame, area: Rect, cache_rates: &[(String, 
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn render_cost_by_session(frame: &mut Frame, area: Rect, session_costs: &[(String, f64)]) {
+fn render_cost_by_project(frame: &mut Frame, area: Rect, project_costs: &[(String, f64)]) {
     let max_rows = area.height.saturating_sub(2) as usize;
     let col_w = area.width as usize;
     let bar_width = 12usize.min(col_w.saturating_sub(24));
-    let max_cost = session_costs.first().map(|(_, c)| *c).unwrap_or(1.0);
+    let max_cost = project_costs.first().map(|(_, c)| *c).unwrap_or(1.0);
 
-    let name_width = session_costs
+    let name_width = project_costs
         .iter()
         .take(max_rows)
         .map(|(n, _)| n.len())
@@ -209,12 +188,12 @@ fn render_cost_by_session(frame: &mut Frame, area: Rect, session_costs: &[(Strin
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     lines.push(Line::from(Span::styled(
-        "  Cost by Session",
+        "  Cost by Project",
         theme::section_title_style(),
     )));
     lines.push(Line::from(""));
 
-    for (name, cost) in session_costs.iter().take(max_rows) {
+    for (name, cost) in project_costs.iter().take(max_rows) {
         let ratio = if max_cost > 0.0 {
             (*cost / max_cost).min(1.0)
         } else {
@@ -242,10 +221,10 @@ fn render_cost_by_session(frame: &mut Frame, area: Rect, session_costs: &[(Strin
 
 /// Pre-computed aggregate data for rendering, updated only when transcripts change.
 struct AnalysisCache {
-    session_tokens: Vec<(String, u64)>,
+    project_tokens: Vec<(String, u64)>,
     tools_sorted: Vec<(String, u64)>,
-    cache_rates: Vec<(String, f64)>,
-    session_costs: Vec<(String, f64)>,
+    project_sessions: Vec<(String, u64)>,
+    project_costs: Vec<(String, f64)>,
 }
 
 #[derive(Default)]
@@ -267,49 +246,43 @@ impl Analysis {
             return;
         }
 
-        let mut session_tokens: Vec<(String, u64)> = Vec::new();
+        let mut token_map: HashMap<String, u64> = HashMap::new();
+        let mut cost_map: HashMap<String, f64> = HashMap::new();
         let mut tool_counts: HashMap<String, u64> = HashMap::new();
-        let mut cache_rates: Vec<(String, f64)> = Vec::new();
-        let mut session_costs: Vec<(String, f64)> = Vec::new();
+        let mut session_map: HashMap<String, u64> = HashMap::new();
 
         for (path, data) in data.iter() {
             let name = project_name::session_display_name(path, data, 20);
             let total = data.input_tokens + data.output_tokens;
-            session_tokens.push((name.clone(), total));
+            *token_map.entry(name.clone()).or_insert(0) += total;
 
             for (tool, count) in &data.tool_call_by_type {
                 *tool_counts.entry(tool.clone()).or_insert(0) += count;
             }
 
-            let cache_total = data.cache_creation_tokens + data.cache_read_tokens;
-            let total_input = data.input_tokens + cache_total;
-            if total_input > 0 {
-                let rate = data.cache_read_tokens as f64 / total_input as f64;
-                cache_rates.push((name.clone(), rate));
-            }
+            *session_map.entry(name.clone()).or_insert(0) += 1;
 
-            session_costs.push((name, data.estimated_cost_usd));
+            *cost_map.entry(name).or_insert(0.0) += data.estimated_cost_usd;
         }
 
-        session_tokens.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let mut project_tokens: Vec<_> = token_map.into_iter().collect();
+        project_tokens.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         let mut tools_sorted: Vec<_> = tool_counts.into_iter().collect();
         tools_sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        cache_rates.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.0.cmp(&b.0))
-        });
-        session_costs.sort_by(|a, b| {
+        let mut project_sessions: Vec<_> = session_map.into_iter().collect();
+        project_sessions.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        let mut project_costs: Vec<_> = cost_map.into_iter().collect();
+        project_costs.sort_by(|a, b| {
             b.1.partial_cmp(&a.1)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| a.0.cmp(&b.0))
         });
 
         self.cache = Some(AnalysisCache {
-            session_tokens,
+            project_tokens,
             tools_sorted,
-            cache_rates,
-            session_costs,
+            project_sessions,
+            project_costs,
         });
     }
 }
@@ -360,7 +333,7 @@ impl Component for Analysis {
             ])
             .split(rows[0]);
 
-            render_token_usage(frame, top_cols[0], &c.session_tokens);
+            render_token_usage(frame, top_cols[0], &c.project_tokens);
             render_separator_v(frame, top_cols[1]);
             render_tool_distribution(frame, top_cols[2], &c.tools_sorted);
 
@@ -373,9 +346,9 @@ impl Component for Analysis {
             ])
             .split(rows[2]);
 
-            render_cache_hit_rate(frame, bot_cols[0], &c.cache_rates);
+            render_sessions_by_project(frame, bot_cols[0], &c.project_sessions);
             render_separator_v(frame, bot_cols[1]);
-            render_cost_by_session(frame, bot_cols[2], &c.session_costs);
+            render_cost_by_project(frame, bot_cols[2], &c.project_costs);
         } else {
             // ── Narrow: vertical stack with scroll ──
             let mut lines: Vec<Line<'static>> = Vec::new();
@@ -383,7 +356,7 @@ impl Component for Analysis {
             let bar_width: usize = 12;
 
             let session_name_width = c
-                .session_tokens
+                .project_tokens
                 .iter()
                 .take(8)
                 .map(|(n, _)| n.len())
@@ -399,8 +372,8 @@ impl Component for Analysis {
             )));
             lines.push(Line::from(""));
 
-            let max_tokens = c.session_tokens.first().map(|(_, t)| *t).unwrap_or(1);
-            for (name, tokens) in c.session_tokens.iter().take(8) {
+            let max_tokens = c.project_tokens.first().map(|(_, t)| *t).unwrap_or(1);
+            for (name, tokens) in c.project_tokens.iter().take(8) {
                 let ratio = (*tokens as f64 / max_tokens as f64).min(1.0);
                 let filled = (ratio * bar_width as f64).round() as usize;
                 let empty = bar_width.saturating_sub(filled);
@@ -427,24 +400,28 @@ impl Component for Analysis {
             )));
             lines.push(Line::from(""));
 
-            // Cache Hit Rate
+            // Sessions by Project
+            let max_sessions = c.project_sessions.first().map(|(_, s)| *s).unwrap_or(1);
             lines.push(Line::from(Span::styled(
-                "  Cache Hit Rate",
+                "  Sessions by Project",
                 theme::section_title_style(),
             )));
             lines.push(Line::from(""));
 
-            for (name, rate) in c.cache_rates.iter().take(8) {
-                let bar = braille_bar(*rate, bar_width);
+            for (name, count) in c.project_sessions.iter().take(8) {
+                let ratio = (*count as f64 / max_sessions as f64).min(1.0);
+                let filled = (ratio * bar_width as f64).round() as usize;
+                let empty = bar_width.saturating_sub(filled);
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(
                         format!("{:<width$}  ", name, width = session_name_width),
                         theme::value_style(),
                     ),
-                    Span::styled(bar, theme::braille_style()),
+                    Span::styled("\u{2588}".repeat(filled), theme::bar_filled_style()),
+                    Span::styled("\u{2591}".repeat(empty), theme::bar_empty_style()),
                     Span::styled(
-                        format!(" {:>4.0}%", rate * 100.0),
+                        format!(" {:>5}", count),
                         theme::stat_number_style(),
                     ),
                 ]));
@@ -505,19 +482,19 @@ impl Component for Analysis {
             )));
             lines.push(Line::from(""));
 
-            // Cost by Session
+            // Cost by Project
             lines.push(Line::from(Span::styled(
-                "  Cost by Session",
+                "  Cost by Project",
                 theme::section_title_style(),
             )));
             lines.push(Line::from(""));
 
             let max_cost = c
-                .session_costs
+                .project_costs
                 .first()
                 .map(|(_, cost)| *cost)
                 .unwrap_or(1.0);
-            for (name, cost) in c.session_costs.iter().take(8) {
+            for (name, cost) in c.project_costs.iter().take(8) {
                 let ratio = if max_cost > 0.0 {
                     (*cost / max_cost).min(1.0)
                 } else {

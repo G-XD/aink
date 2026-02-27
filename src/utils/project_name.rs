@@ -130,15 +130,17 @@ mod tests {
 
 /// Session display name from a transcript file path and data.
 ///
-/// Uses `data.slug` directly if present (already decoded to a human-readable
-/// name at parse time by each source). Falls back to decoding the parent
-/// directory name from the path.
+/// Priority: `project_name` (set by each source) → `slug` → path-based fallback.
 pub fn session_display_name(
     path: &Path,
     data: &crate::collector::transcript::TranscriptData,
     max_len: usize,
 ) -> String {
-    let name = if let Some(ref s) = data.slug
+    let name = if let Some(ref s) = data.project_name
+        && !s.is_empty()
+    {
+        s.clone()
+    } else if let Some(ref s) = data.slug
         && !s.is_empty()
     {
         s.clone()

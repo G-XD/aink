@@ -42,6 +42,8 @@ pub struct TranscriptData {
     pub agent_version: Option<String>,
     pub git_branch: Option<String>,
     pub slug: Option<String>,
+    /// Human-readable project name, set by each source at parse time.
+    pub project_name: Option<String>,
     pub estimated_cost_usd: f64,
 }
 

@@ -166,6 +166,18 @@ pub fn table_row(
             theme::body_style()
         };
 
+        let summary = data
+            .first_user_message
+            .as_deref()
+            .unwrap_or("")
+            .chars()
+            .take(SESSION_NAME_MAX_LEN)
+            .collect::<String>();
+        let name_cell = Cell::from(Text::from(vec![
+            Line::from(session_name),
+            Line::from(Span::styled(summary, theme::stat_secondary_style())),
+        ]));
+
         Row::new(vec![
             Cell::from(Span::styled(
                 indicator,
@@ -179,7 +191,7 @@ pub fn table_row(
                 format!("{}", source_kind),
                 theme::value_style(),
             )),
-            Cell::from(session_name),
+            name_cell,
             Cell::from(models_str),
             Cell::from(format_tokens(data.input_tokens)),
             Cell::from(format_tokens(data.output_tokens)),

@@ -43,7 +43,7 @@ impl TranscriptSource for CodexSource {
         if !root.is_dir() {
             return paths;
         }
-        collect_jsonl_paths(root, &mut paths);
+        super::collect_jsonl_paths(root, &mut paths, &[]);
         paths.sort_by(|a, b| {
             let t_a = std::fs::metadata(a).and_then(|m| m.modified()).ok();
             let t_b = std::fs::metadata(b).and_then(|m| m.modified()).ok();
@@ -85,23 +85,6 @@ impl TranscriptSource for CodexSource {
 
 // ── File discovery ──────────────────────────────────────────────────────────
 
-fn collect_jsonl_paths(dir: &Path, out: &mut Vec<PathBuf>) {
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(rd) => rd,
-        Err(e) => {
-            warn!("read_dir {}: {}", dir.display(), e);
-            return;
-        }
-    };
-    for entry in read_dir.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_jsonl_paths(&path, out);
-        } else if path.extension().is_some_and(|e| e == "jsonl") {
-            out.push(path);
-        }
-    }
-}
 
 // ── Transcript parsing ──────────────────────────────────────────────────────
 
@@ -285,6 +268,7 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
         end_time,
         agent_version,
         git_branch,
+        project_name: slug.clone(),
         slug,
         estimated_cost_usd: 0.0,
     })
