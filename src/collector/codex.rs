@@ -85,7 +85,6 @@ impl TranscriptSource for CodexSource {
 
 // ── File discovery ──────────────────────────────────────────────────────────
 
-
 // ── Transcript parsing ──────────────────────────────────────────────────────
 
 fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
@@ -247,7 +246,6 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
 
     let duration_ms = compute_duration_ms(start_time.as_deref(), end_time.as_deref());
     let tool_call_total: u64 = tool_counts.values().sum();
-
     Ok(TranscriptData {
         source: SourceKind::Codex,
         input_tokens,

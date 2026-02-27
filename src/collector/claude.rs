@@ -128,7 +128,6 @@ impl TranscriptSource for ClaudeSource {
 
 // ── File discovery ──────────────────────────────────────────────────────────
 
-
 // ── Transcript parsing ──────────────────────────────────────────────────────
 
 fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
@@ -234,12 +233,6 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
     });
 
     let total: u64 = acc.tool_counts.values().sum();
-    let estimated_cost_usd: f64 = acc
-        .per_model
-        .iter()
-        .map(|(model, stats)| estimate_cost(model, stats))
-        .sum();
-
     Ok(TranscriptData {
         source: SourceKind::Claude,
         input_tokens: acc.input_tokens,
@@ -266,7 +259,7 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
             .map(crate::utils::project_name::project_display_name),
-        estimated_cost_usd,
+        estimated_cost_usd: 0.0,
     })
 }
 
@@ -374,34 +367,6 @@ impl ParseAccumulator {
             }
         }
     }
-}
-
-// ── Cost estimation (Claude model pricing) ──────────────────────────────────
-
-fn estimate_cost(model: &str, stats: &ModelStats) -> f64 {
-    let m = model.to_lowercase();
-    let (price_in, price_out, price_cc, price_cr) =
-        if m.contains("opus-4-6") || m.contains("opus-4-5") {
-            (5.00, 25.00, 6.25, 0.50)
-        } else if m.contains("opus-4-1") || m.contains("opus-4") || m.contains("opus-3") {
-            (15.00, 75.00, 18.75, 1.50)
-        } else if m.contains("sonnet-4-5") || m.contains("sonnet-4") || m.contains("sonnet-3") {
-            (3.00, 15.00, 3.75, 0.30)
-        } else if m.contains("haiku-4-5") {
-            (1.00, 5.00, 1.25, 0.10)
-        } else if m.contains("haiku-3-5") {
-            (0.80, 4.00, 1.00, 0.08)
-        } else if m.contains("haiku-3") {
-            (0.25, 1.25, 0.30, 0.03)
-        } else {
-            (3.00, 15.00, 3.75, 0.30)
-        };
-
-    (stats.input_tokens as f64 * price_in
-        + stats.output_tokens as f64 * price_out
-        + stats.cache_creation_tokens as f64 * price_cc
-        + stats.cache_read_tokens as f64 * price_cr)
-        / 1_000_000.0
 }
 
 // ── Conversation parsing ────────────────────────────────────────────────────
@@ -627,7 +592,6 @@ fn merge_subagent(parent: &mut TranscriptData, sub: &TranscriptData) {
     parent.duration_ms += sub.duration_ms;
     parent.turn_count += sub.turn_count;
     parent.assistant_message_count += sub.assistant_message_count;
-    parent.estimated_cost_usd += sub.estimated_cost_usd;
     parent.tool_call_total += sub.tool_call_total;
 
     for model in &sub.models {

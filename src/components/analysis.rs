@@ -161,10 +161,7 @@ fn render_sessions_by_project(frame: &mut Frame, area: Rect, project_sessions: &
             ),
             Span::styled("\u{2588}".repeat(filled), theme::bar_filled_style()),
             Span::styled("\u{2591}".repeat(empty), theme::bar_empty_style()),
-            Span::styled(
-                format!(" {:>5}", count),
-                theme::stat_number_style(),
-            ),
+            Span::styled(format!(" {:>5}", count), theme::stat_number_style()),
         ]));
     }
 
@@ -420,10 +417,7 @@ impl Component for Analysis {
                     ),
                     Span::styled("\u{2588}".repeat(filled), theme::bar_filled_style()),
                     Span::styled("\u{2591}".repeat(empty), theme::bar_empty_style()),
-                    Span::styled(
-                        format!(" {:>5}", count),
-                        theme::stat_number_style(),
-                    ),
+                    Span::styled(format!(" {:>5}", count), theme::stat_number_style()),
                 ]));
             }
 

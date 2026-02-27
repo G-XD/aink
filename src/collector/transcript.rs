@@ -71,5 +71,58 @@ pub enum ConversationRole {
     Assistant,
 }
 
+impl TranscriptData {
+    /// Recompute `estimated_cost_usd` from `per_model` using the global price
+    /// table.  Call this once after all mutations (parsing, subagent merging,
+    /// backfill) are complete.
+    ///
+    /// When `per_model` entries exist but carry no tokens (common for Cursor
+    /// where DB token counts are often zero), the session-level totals are
+    /// distributed across known models so cost estimation still works.
+    pub fn compute_cost(&mut self) {
+        self.backfill_per_model_tokens();
+        self.estimated_cost_usd = self
+            .per_model
+            .iter()
+            .map(|(model, stats)| crate::utils::prices::estimate_cost(model, stats))
+            .sum();
+    }
+
+    /// If `per_model` has entries with zero tokens but session-level totals
+    /// are non-zero, distribute the session totals evenly.
+    fn backfill_per_model_tokens(&mut self) {
+        if self.per_model.is_empty() || (self.input_tokens == 0 && self.output_tokens == 0) {
+            return;
+        }
+        let tracked: u64 = self
+            .per_model
+            .values()
+            .map(|s| s.input_tokens + s.output_tokens)
+            .sum();
+        if tracked > 0 {
+            return;
+        }
+        let n = self.per_model.len() as u64;
+        let (share_in, share_out) = (self.input_tokens / n, self.output_tokens / n);
+        let (mut rem_in, mut rem_out) = (self.input_tokens % n, self.output_tokens % n);
+        for ms in self.per_model.values_mut() {
+            ms.input_tokens = share_in
+                + if rem_in > 0 {
+                    rem_in -= 1;
+                    1
+                } else {
+                    0
+                };
+            ms.output_tokens = share_out
+                + if rem_out > 0 {
+                    rem_out -= 1;
+                    1
+                } else {
+                    0
+                };
+        }
+    }
+}
+
 /// Type alias for the common transcript list used across components.
 pub type SessionList = Vec<(PathBuf, TranscriptData)>;

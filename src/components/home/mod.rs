@@ -540,6 +540,9 @@ fn run_load(sources: &[Box<dyn TranscriptSource>], config: &Config) -> SessionLi
     for batch in results {
         all.extend(batch);
     }
+    for (_, data) in &mut all {
+        data.compute_cost();
+    }
 
     tracing::info!(
         "[home] load_transcripts total ({} sessions): {:?}",
