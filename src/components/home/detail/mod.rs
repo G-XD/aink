@@ -12,9 +12,9 @@ pub use stats::detail_stats_content;
 
 use ratatui::layout::Rect;
 use ratatui::prelude::*;
-use ratatui::widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::Paragraph;
 
-/// Render a list of lines as a scrollable Paragraph with a scrollbar.
+/// Render a list of lines as a scrollable Paragraph.
 ///
 /// Uses line-skip scrolling (no word-wrap) so cost is O(1) per skipped line
 /// regardless of scroll depth. Content builders handle width themselves.
@@ -24,16 +24,6 @@ pub fn render_scrollable_content(
     content: Vec<Line<'static>>,
     scroll: u16,
 ) {
-    let content_len = content.len();
     let para = Paragraph::new(content).scroll((scroll, 0));
     frame.render_widget(para, area);
-
-    let mut scrollbar_state = ScrollbarState::new(content_len).position(scroll as usize);
-    frame.render_stateful_widget(
-        Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None),
-        area,
-        &mut scrollbar_state,
-    );
 }
