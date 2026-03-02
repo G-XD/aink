@@ -129,6 +129,24 @@ impl PriceTable {
             + stats.cache_creation_tokens as f64 * p.cache_creation_input_token_cost
             + stats.cache_read_tokens as f64 * p.cache_read_input_token_cost
     }
+
+    /// Ensures a "cursor" fallback pricing entry exists for Cursor sessions
+    /// that have no model name in the transcript. Uses a conservative
+    /// average ($3/1M input, $15/1M output) so cost is non-zero.
+    fn with_cursor_fallback(mut self) -> Self {
+        if !self.models.contains_key("cursor") {
+            self.models.insert(
+                "cursor".to_string(),
+                ModelPricing {
+                    input_cost_per_token: 3e-6,  // $3/1M input
+                    output_cost_per_token: 15e-6, // $15/1M output
+                    cache_creation_input_token_cost: 0.0,
+                    cache_read_input_token_cost: 0.0,
+                },
+            );
+        }
+        self
+    }
 }
 
 // ── Global singleton ─────────────────────────────────────────────────────────
@@ -174,25 +192,25 @@ fn load_price_table() -> PriceTable {
         && let Some(table) = load_from_cache(&path)
     {
         debug!("loaded {} model prices from cache", table.models.len());
-        return table;
+        return table.with_cursor_fallback();
     }
 
     if let Some(bytes) = download_blocking()
         && let Some(table) = parse_and_cache(&bytes, &path)
     {
         debug!("downloaded {} model prices", table.models.len());
-        return table;
+        return table.with_cursor_fallback();
     }
 
     if path.exists()
         && let Some(table) = load_from_cache(&path)
     {
         warn!("using stale price cache ({} models)", table.models.len());
-        return table;
+        return table.with_cursor_fallback();
     }
 
     warn!("no pricing data available — all costs will be zero");
-    PriceTable::empty()
+    PriceTable::empty().with_cursor_fallback()
 }
 
 fn load_from_cache(path: &PathBuf) -> Option<PriceTable> {

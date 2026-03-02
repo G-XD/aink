@@ -79,13 +79,43 @@ impl TranscriptData {
     /// When `per_model` entries exist but carry no tokens (common for Cursor
     /// where DB token counts are often zero), the session-level totals are
     /// distributed across known models so cost estimation still works.
+    ///
+    /// For Cursor, when no model name was found (per_model empty) but session
+    /// has tokens, a single "cursor" fallback entry is added so cost can be
+    /// estimated. If per_model has entries but their names don't match the
+    /// price table (e.g. display names like "Claude Sonnet 4"), the sum is 0;
+    /// in that case we also fall back to "cursor" pricing using session totals.
     pub fn compute_cost(&mut self) {
+        if self.source == SourceKind::Cursor
+            && self.per_model.is_empty()
+            && (self.input_tokens > 0 || self.output_tokens > 0)
+        {
+            self.per_model
+                .insert("cursor".to_string(), ModelStats::default());
+        }
         self.backfill_per_model_tokens();
         self.estimated_cost_usd = self
             .per_model
             .iter()
             .map(|(model, stats)| crate::utils::prices::estimate_cost(model, stats))
             .sum();
+
+        // Cursor: if sum is still 0 but we have tokens (e.g. model names from
+        // composerData don't match the price table), use "cursor" fallback.
+        if self.source == SourceKind::Cursor
+            && self.estimated_cost_usd == 0.0
+            && (self.input_tokens > 0 || self.output_tokens > 0)
+        {
+            let stats = ModelStats {
+                input_tokens: self.input_tokens,
+                output_tokens: self.output_tokens,
+                cache_creation_tokens: self.cache_creation_tokens,
+                cache_read_tokens: self.cache_read_tokens,
+                ..Default::default()
+            };
+            self.estimated_cost_usd =
+                crate::utils::prices::estimate_cost("cursor", &stats);
+        }
     }
 
     /// If `per_model` has entries with zero tokens but session-level totals
