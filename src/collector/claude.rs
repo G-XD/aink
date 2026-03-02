@@ -500,22 +500,6 @@ fn extract_text_from_content(content: Option<&serde_json::Value>) -> Option<Stri
     }
 }
 
-const SUMMARY_MAX_LEN: usize = 80;
-
-fn truncate_summary(s: &str) -> String {
-    if s.len() <= SUMMARY_MAX_LEN {
-        s.to_string()
-    } else {
-        let end = s
-            .char_indices()
-            .take(SUMMARY_MAX_LEN)
-            .last()
-            .map(|(i, _)| i)
-            .unwrap_or(s.len());
-        format!("{}…", &s[..end])
-    }
-}
-
 fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String {
     let Some(obj) = input.and_then(|v| v.as_object()) else {
         return String::new();
@@ -524,32 +508,23 @@ fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String
     let get_str = |key: &str| obj.get(key).and_then(|v| v.as_str()).map(|s| s.to_string());
 
     match name {
-        "Read" | "Write" | "Edit" | "MultiEdit" => get_str("file_path")
-            .map(|p| truncate_summary(&p))
-            .unwrap_or_default(),
-        "Bash" | "Shell" => get_str("command")
-            .map(|c| truncate_summary(&c))
-            .unwrap_or_default(),
+        "Read" | "Write" | "Edit" | "MultiEdit" => get_str("file_path").unwrap_or_default(),
+        "Bash" | "Shell" => get_str("command").unwrap_or_default(),
         "Grep" | "Search" | "RipGrep" => {
             let pattern = get_str("pattern").unwrap_or_default();
             let path = get_str("path")
                 .or_else(|| get_str("directory"))
                 .unwrap_or_default();
             if path.is_empty() {
-                truncate_summary(&pattern)
+                pattern
             } else {
-                truncate_summary(&format!("{} in {}", pattern, path))
+                format!("{} in {}", pattern, path)
             }
         }
-        "Glob" => get_str("pattern")
-            .map(|p| truncate_summary(&p))
-            .unwrap_or_default(),
+        "Glob" => get_str("pattern").unwrap_or_default(),
         _ => obj
             .iter()
-            .find_map(|(k, v)| {
-                v.as_str()
-                    .map(|s| truncate_summary(&format!("{}: {}", k, s)))
-            })
+            .find_map(|(k, v)| v.as_str().map(|s| format!("{}: {}", k, s)))
             .unwrap_or_default(),
     }
 }

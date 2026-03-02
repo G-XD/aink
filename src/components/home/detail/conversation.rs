@@ -99,12 +99,24 @@ fn estimate_turn_lines(turn: &ConversationTurn, is_expanded: bool, usable_w: usi
     let mut count = 2; // header + separator
 
     if !turn.tool_calls.is_empty() {
-        count += 1; // summary line
         if is_expanded {
             let tc_width = usable_w.saturating_sub(12);
             for tc in &turn.tool_calls {
                 count += estimate_wrapped(&tc.summary, tc_width).max(1);
             }
+        } else {
+            let preview = turn
+                .tool_calls
+                .iter()
+                .map(|tc| tc.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let summary_text = format!(
+                "  \u{25b8} {} tool calls ({})",
+                turn.tool_calls.len(),
+                preview
+            );
+            count += estimate_wrapped(&summary_text, usable_w).max(1);
         }
     }
 
@@ -241,21 +253,22 @@ pub fn detail_conversation_content(
         if !turn.tool_calls.is_empty() {
             let tool_names: Vec<&str> = turn.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
             let icon = if is_expanded { "\u{25be}" } else { "\u{25b8}" };
-            let preview = if tool_names.len() <= 4 {
-                tool_names.join(", ")
-            } else {
-                let first = tool_names[..3].join(", ");
-                format!("{}, +{} more", first, tool_names.len() - 3)
-            };
-            lines.push(Line::from(Span::styled(
-                format!(
-                    "  {} {} tool calls ({})",
-                    icon,
-                    turn.tool_calls.len(),
-                    preview
-                ),
-                theme::fold_style(),
-            )));
+            let preview = tool_names.join(", ");
+            let summary_text = format!(
+                "  {} {} tool calls ({})",
+                icon,
+                turn.tool_calls.len(),
+                preview
+            );
+            let wrapped_summary = wrap_text(&summary_text, usable);
+            for (i, line) in wrapped_summary.iter().enumerate() {
+                let line_str = if i == 0 {
+                    line.clone()
+                } else {
+                    format!("  {}", line.trim_start())
+                };
+                lines.push(Line::from(Span::styled(line_str, theme::fold_style())));
+            }
 
             if is_expanded {
                 for tc in &turn.tool_calls {

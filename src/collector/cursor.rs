@@ -866,8 +866,6 @@ fn flush_assistant_turn(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-const SUMMARY_MAX_LEN: usize = 80;
-
 fn summarize_tool_args(tool_name: &str, raw_args: &str) -> String {
     let v: serde_json::Value = match serde_json::from_str(raw_args) {
         Ok(v) => v,
@@ -905,21 +903,7 @@ fn summarize_tool_args(tool_name: &str, raw_args: &str) -> String {
             .find_map(|(k, v)| v.as_str().map(|s| format!("{}: {}", k, s)))
             .unwrap_or_default(),
     };
-    truncate_summary(&raw)
-}
-
-fn truncate_summary(s: &str) -> String {
-    if s.len() <= SUMMARY_MAX_LEN {
-        s.to_string()
-    } else {
-        let end = s
-            .char_indices()
-            .take(SUMMARY_MAX_LEN)
-            .last()
-            .map(|(i, _)| i)
-            .unwrap_or(s.len());
-        format!("{}…", &s[..end])
-    }
+    raw
 }
 
 fn truncate_to(s: &str, max_len: usize) -> String {
