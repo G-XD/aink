@@ -1,5 +1,5 @@
 # Build release binaries and publish to GitHub Releases.
-# Trigger: push tag v* (e.g. v0.1.0) or run manually (workflow_dispatch).
+# Trigger: push tag v* (e.g. v0.1.0) or manually run (workflow_dispatch).
 
 name: Release
 
@@ -8,6 +8,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 0.1.0). Leave empty to only build artifacts.'
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -77,7 +82,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-24.04
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version != '')
     permissions:
       contents: write
 
@@ -87,9 +92,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version
+      - name: Get version and tag
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -103,7 +115,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.TAG_NAME }}
           name: aink ${{ steps.version.outputs.VERSION }}
           draft: false
           generate_release_notes: true
