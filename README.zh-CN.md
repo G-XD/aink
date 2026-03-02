@@ -47,24 +47,6 @@ AINK 是一款终端 TUI，用于发现、加载并分析 AI 编程会话记录�
 
 ---
 
-## 安装与运行
-
-**从发布包：** 在 [Release](https://github.com/YOUR_USERNAME/aink/releases) 下载与系统对应的最新版本，解压后将 `aink` 加入 `PATH`。
-
-**从源码**（需 [Rust](https://rustup.rs) 1.70+）：
-
-```bash
-git clone https://github.com/YOUR_USERNAME/aink.git && cd aink && cargo install --path .
-```
-
-然后运行：
-
-```bash
-aink
-```
-
-常用参数：`aink --help`、`aink --version`。
-
 ## 配置
 
 配置从系统配置目录加载，并与内置默认值合并：

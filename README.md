@@ -47,24 +47,6 @@ Use sub-tabs and keybindings to move between Stats, Conversation, and Files.
 
 ---
 
-## Install & run
-
-**From release:** download the latest [Release](https://github.com/YOUR_USERNAME/aink/releases) for your platform, unpack, and add `aink` to your `PATH`.
-
-**From source** (requires [Rust](https://rustup.rs) 1.70+):
-
-```bash
-git clone https://github.com/YOUR_USERNAME/aink.git && cd aink && cargo install --path .
-```
-
-Then run:
-
-```bash
-aink
-```
-
-Flags: `aink --help`, `aink --version`.
-
 ## Configuration
 
 Config is loaded from the platform config directory and merged with built-in defaults:
