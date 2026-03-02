@@ -181,6 +181,9 @@ impl Component for TabHost {
 
         if !in_detail {
             match key.code {
+                KeyCode::Char('q') => {
+                    return Ok(Some(Action::Quit));
+                }
                 KeyCode::Char('O') => {
                     self.switch_tab(0);
                     return Ok(Some(Action::Render));

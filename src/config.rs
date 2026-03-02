@@ -630,7 +630,7 @@ mod tests {
                 .0
                 .get(&Mode::Home)
                 .unwrap()
-                .get(&parse_key_sequence("<q>").unwrap_or_default())
+                .get(&parse_key_sequence("<ctrl-c>").unwrap_or_default())
                 .unwrap(),
             &Action::Quit
         );

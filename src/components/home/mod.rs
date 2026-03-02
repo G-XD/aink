@@ -533,15 +533,21 @@ impl Component for Home {
                         ds.current_scroll(),
                     );
                 }
-                let detail_hints: Vec<(&str, &str)> = match ds.active_tab {
-                    DetailTab::Conversation => vec![
-                        ("S/C/F", "tabs"),
-                        ("j/k", "navigate"),
-                        ("Enter", "expand"),
-                        ("Esc", "back"),
-                    ],
-                    _ => vec![("S/C/F", "tabs"), ("j/k", "scroll"), ("Esc", "back")],
-                };
+                let mut detail_hints: Vec<(&str, &str)> = vec![
+                    ("S/C/F", "tabs"),
+                    (
+                        "j/k",
+                        if ds.active_tab == DetailTab::Conversation {
+                            "navigate"
+                        } else {
+                            "scroll"
+                        },
+                    ),
+                    ("Esc/q", "back"),
+                ];
+                if ds.active_tab == DetailTab::Conversation {
+                    detail_hints.insert(2, ("Enter", "expand"));
+                }
                 let hint = Paragraph::new(footer::footer_hints(&detail_hints))
                     .alignment(Alignment::Center);
                 frame.render_widget(hint, footer_area);

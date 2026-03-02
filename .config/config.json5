@@ -1,7 +1,6 @@
 {
   "keybindings": {
     "Home": {
-      "<q>": "Quit",
       "<ctrl-c>": "Quit",
       "<ctrl-d>": "Quit",
       "<ctrl-z>": "Suspend",
