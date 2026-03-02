@@ -33,7 +33,7 @@ use crate::components::common::{footer, theme};
 use table::{
     COLUMN_WIDTHS, selection_next, selection_previous, set_selection, table_header, table_row,
 };
-use view::{DetailState, DetailTab, ExpandState, View};
+use view::{DetailState, DetailTab, ExpandState, SortColumn, SortState, View};
 
 const SPINNER_CHARS: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -45,6 +45,7 @@ pub struct Home {
     display_names: Vec<String>,
     table_state: TableState,
     view: View,
+    sort: SortState,
     expand_state: ExpandState,
     detail_conversation: Option<Vec<ConversationTurn>>,
     loading: bool,
@@ -62,6 +63,7 @@ impl Default for Home {
             display_names: Vec::new(),
             table_state: TableState::default(),
             view: View::List,
+            sort: SortState::default(),
             expand_state: ExpandState::default(),
             detail_conversation: None,
             loading: false,
@@ -96,22 +98,19 @@ impl Home {
         });
     }
 
-    fn finish_loading(&mut self, mut data: SessionList) {
-        data.sort_by(|a, b| {
-            let s_a =
-                a.1.end_time
-                    .as_deref()
-                    .or(a.1.start_time.as_deref())
-                    .unwrap_or("");
-            let s_b =
-                b.1.end_time
-                    .as_deref()
-                    .or(b.1.start_time.as_deref())
-                    .unwrap_or("");
-            s_b.cmp(s_a)
-        });
-
+    fn finish_loading(&mut self, data: SessionList) {
         self.transcripts = data;
+        self.rebuild_display_names();
+        self.apply_sort();
+        self.view = View::List;
+        if !self.transcripts.is_empty() {
+            set_selection(&mut self.table_state, Some(0));
+        }
+        self.loading = false;
+        self.load_rx = None;
+    }
+
+    fn rebuild_display_names(&mut self) {
         self.display_names = self
             .transcripts
             .iter()
@@ -119,12 +118,42 @@ impl Home {
                 project_name::session_display_name(path, data, table::SESSION_NAME_MAX_LEN)
             })
             .collect();
-        self.view = View::List;
-        if !self.transcripts.is_empty() {
-            set_selection(&mut self.table_state, Some(0));
-        }
-        self.loading = false;
-        self.load_rx = None;
+    }
+
+    fn apply_sort(&mut self) {
+        let col = self.sort.column;
+        let asc = self.sort.ascending;
+        self.transcripts.sort_by(|a, b| {
+            let cmp = match col {
+                SortColumn::Input => a.1.input_tokens.cmp(&b.1.input_tokens),
+                SortColumn::Output => a.1.output_tokens.cmp(&b.1.output_tokens),
+                SortColumn::Total => {
+                    let ta = a.1.input_tokens + a.1.output_tokens;
+                    let tb = b.1.input_tokens + b.1.output_tokens;
+                    ta.cmp(&tb)
+                }
+                SortColumn::Active => {
+                    let sa =
+                        a.1.end_time
+                            .as_deref()
+                            .or(a.1.start_time.as_deref())
+                            .unwrap_or("");
+                    let sb =
+                        b.1.end_time
+                            .as_deref()
+                            .or(b.1.start_time.as_deref())
+                            .unwrap_or("");
+                    sa.cmp(sb)
+                }
+                SortColumn::Cost => {
+                    a.1.estimated_cost_usd
+                        .partial_cmp(&b.1.estimated_cost_usd)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }
+            };
+            if asc { cmp } else { cmp.reverse() }
+        });
+        self.rebuild_display_names();
     }
 
     pub fn transcripts(&self) -> &SessionList {
@@ -199,6 +228,35 @@ impl Home {
                     return Some(Action::Render);
                 }
                 None
+            }
+            KeyCode::Char('>') | KeyCode::Char('.') => {
+                if let Some(next) = self.sort.column.next() {
+                    self.sort.column = next;
+                    self.apply_sort();
+                    self.expand_state = ExpandState::default();
+                    set_selection(&mut self.table_state, Some(0));
+                    Some(Action::Render)
+                } else {
+                    None
+                }
+            }
+            KeyCode::Char('<') | KeyCode::Char(',') => {
+                if let Some(prev) = self.sort.column.prev() {
+                    self.sort.column = prev;
+                    self.apply_sort();
+                    self.expand_state = ExpandState::default();
+                    set_selection(&mut self.table_state, Some(0));
+                    Some(Action::Render)
+                } else {
+                    None
+                }
+            }
+            KeyCode::Char('s') => {
+                self.sort.ascending = !self.sort.ascending;
+                self.apply_sort();
+                self.expand_state = ExpandState::default();
+                set_selection(&mut self.table_state, Some(0));
+                Some(Action::Render)
             }
             KeyCode::Enter => {
                 if let Some(i) = self.table_state.selected()
@@ -400,7 +458,7 @@ impl Component for Home {
                     })
                     .collect();
                 let table = Table::new(rows, COLUMN_WIDTHS)
-                    .header(table_header())
+                    .header(table_header(&self.sort))
                     .column_spacing(2)
                     .style(theme::body_style())
                     .row_highlight_style(theme::highlight_style());
@@ -412,7 +470,13 @@ impl Component for Home {
                 if can_expand {
                     hints.push(("\u{2192}/\u{2190}", "expand"));
                 }
-                hints.extend([("Enter", "detail"), ("R", "refresh"), ("q", "quit")]);
+                hints.extend([
+                    ("</>", "sort"),
+                    ("s", "reverse"),
+                    ("Enter", "detail"),
+                    ("R", "refresh"),
+                    ("q", "quit"),
+                ]);
                 let hint =
                     Paragraph::new(footer::footer_hints(&hints)).alignment(Alignment::Center);
                 frame.render_widget(hint, footer_area);

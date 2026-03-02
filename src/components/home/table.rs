@@ -11,7 +11,7 @@ use crate::collector::transcript::TranscriptData;
 use crate::components::common::theme;
 use crate::utils::format::{format_cost, format_last_active, format_tokens};
 
-use super::view::ExpandState;
+use super::view::{ExpandState, SortColumn, SortState};
 
 pub const SESSION_NAME_MAX_LEN: usize = 36;
 
@@ -27,17 +27,28 @@ pub const COLUMN_WIDTHS: [Constraint; 9] = [
     Constraint::Length(7), // cost
 ];
 
-pub fn table_header() -> Row<'static> {
+pub fn table_header(sort: &SortState) -> Row<'static> {
+    let arrow = if sort.ascending { " ▲" } else { " ▼" };
+
+    let col = |label: &'static str, col: SortColumn| -> Cell<'static> {
+        if sort.column == col {
+            let text = format!("{label}{arrow}");
+            Cell::from(Span::styled(text, theme::tab_active_style()))
+        } else {
+            Cell::from(label)
+        }
+    };
+
     Row::new(vec![
         Cell::from(""),
         Cell::from("Source"),
         Cell::from("Session"),
         Cell::from("Models"),
-        Cell::from("Input"),
-        Cell::from("Output"),
-        Cell::from("Total"),
-        Cell::from("Active"),
-        Cell::from("Cost"),
+        col("Input", SortColumn::Input),
+        col("Output", SortColumn::Output),
+        col("Total", SortColumn::Total),
+        col("Active", SortColumn::Active),
+        col("Cost", SortColumn::Cost),
     ])
     .style(theme::header_style())
     .height(1)

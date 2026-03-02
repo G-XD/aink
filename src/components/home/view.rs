@@ -85,6 +85,55 @@ pub enum View {
     Detail(DetailState),
 }
 
+/// Sortable column in the sessions table.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum SortColumn {
+    Input,
+    Output,
+    Total,
+    #[default]
+    Active,
+    Cost,
+}
+
+impl SortColumn {
+    pub fn next(self) -> Option<Self> {
+        match self {
+            Self::Input => Some(Self::Output),
+            Self::Output => Some(Self::Total),
+            Self::Total => Some(Self::Active),
+            Self::Active => Some(Self::Cost),
+            Self::Cost => None,
+        }
+    }
+
+    pub fn prev(self) -> Option<Self> {
+        match self {
+            Self::Input => None,
+            Self::Output => Some(Self::Input),
+            Self::Total => Some(Self::Output),
+            Self::Active => Some(Self::Total),
+            Self::Cost => Some(Self::Active),
+        }
+    }
+}
+
+/// Current sort column and direction.
+#[derive(Clone, Copy)]
+pub struct SortState {
+    pub column: SortColumn,
+    pub ascending: bool,
+}
+
+impl Default for SortState {
+    fn default() -> Self {
+        Self {
+            column: SortColumn::Active,
+            ascending: false,
+        }
+    }
+}
+
 /// Tracks which session rows are expanded to show per-model breakdown.
 #[derive(Default)]
 pub struct ExpandState {
