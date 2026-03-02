@@ -13,8 +13,6 @@ use crate::{
 
 pub struct App {
     config: Config,
-    tick_rate: f64,
-    frame_rate: f64,
     components: Vec<Box<dyn Component>>,
     should_quit: bool,
     should_suspend: bool,
@@ -31,11 +29,9 @@ pub enum Mode {
 }
 
 impl App {
-    pub fn new(tick_rate: f64, frame_rate: f64) -> color_eyre::Result<Self> {
+    pub fn new() -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Ok(Self {
-            tick_rate,
-            frame_rate,
             components: vec![Box::new(TabHost::new())],
             should_quit: false,
             should_suspend: false,
@@ -48,10 +44,7 @@ impl App {
     }
 
     pub async fn run(&mut self) -> color_eyre::Result<()> {
-        let mut tui = Tui::new()?
-            // .mouse(true) // uncomment this line to enable mouse support
-            .tick_rate(self.tick_rate)
-            .frame_rate(self.frame_rate);
+        let mut tui = Tui::new()?;
         tui.enter()?;
 
         for component in self.components.iter_mut() {
