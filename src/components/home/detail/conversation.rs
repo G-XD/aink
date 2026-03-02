@@ -95,10 +95,19 @@ fn estimate_wrapped(text: &str, usable_w: usize) -> usize {
 }
 
 /// Estimate how many rendered lines a turn produces without allocating Line objects.
-fn estimate_turn_lines(turn: &ConversationTurn, is_expanded: bool, usable_w: usize) -> usize {
-    let mut count = 2; // header + separator
+fn estimate_turn_lines(
+    turn: &ConversationTurn,
+    is_expanded: bool,
+    usable_w: usize,
+    is_continuation: bool,
+) -> usize {
+    let mut count = if is_continuation { 1 } else { 2 }; // continuation: "···" only; normal: header + separator
 
-    if !turn.tool_calls.is_empty() {
+    if turn.tool_calls.len() == 1 {
+        let tc = &turn.tool_calls[0];
+        let tc_width = usable_w.saturating_sub(8);
+        count += estimate_wrapped(&tc.summary, tc_width).max(1);
+    } else if turn.tool_calls.len() > 1 {
         if is_expanded {
             let tc_width = usable_w.saturating_sub(12);
             for tc in &turn.tool_calls {
@@ -180,7 +189,10 @@ pub fn detail_conversation_content(
         .enumerate()
         .map(|(idx, turn)| {
             let expanded = expanded_sections.contains(&format!("{}{}", SECTION_MSG_PREFIX, idx));
-            estimate_turn_lines(turn, expanded, usable)
+            let is_cont = idx > 0
+                && turn.role == ConversationRole::Assistant
+                && turns[idx - 1].role == ConversationRole::Assistant;
+            estimate_turn_lines(turn, expanded, usable, is_cont)
         })
         .sum();
 
@@ -191,7 +203,10 @@ pub fn detail_conversation_content(
         .map(|(i, turn)| {
             let idx = win_end + i;
             let expanded = expanded_sections.contains(&format!("{}{}", SECTION_MSG_PREFIX, idx));
-            estimate_turn_lines(turn, expanded, usable)
+            let is_cont = idx > 0
+                && turn.role == ConversationRole::Assistant
+                && turns[idx - 1].role == ConversationRole::Assistant;
+            estimate_turn_lines(turn, expanded, usable, is_cont)
         })
         .sum();
 
@@ -216,41 +231,89 @@ pub fn detail_conversation_content(
             cursor_line = lines.len();
         }
 
-        // ── Header: selection bar + role + turn counter ──
-        let (role_label, role_style) = match turn.role {
-            ConversationRole::User => ("User", theme::conv_user_style()),
-            ConversationRole::Assistant => ("Assistant", theme::conv_assistant_style()),
-        };
-
-        let bar = if is_selected { "│" } else { " " };
-        let bar_style = if is_selected {
-            theme::selection_bar_style()
+        // Check if this is a continuation of the previous Assistant turn.
+        let prev_role = if turn_idx > 0 {
+            Some(turns[turn_idx - 1].role)
         } else {
-            theme::body_style()
+            None
         };
+        let is_continuation = turn.role == ConversationRole::Assistant
+            && prev_role == Some(ConversationRole::Assistant);
 
-        let time_str = format_conversation_time(turn.created_at.as_deref());
-        let counter = format!("[{}/{}]", turn_idx + 1, total);
-        let padding =
-            w.saturating_sub(4 + role_label.len() + 1 + time_str.len() + 1 + counter.len());
+        if is_continuation {
+            // Merged continuation: subtle separator instead of full header.
+            let bar = if is_selected { "│" } else { " " };
+            let bar_style = if is_selected {
+                theme::selection_bar_style()
+            } else {
+                theme::body_style()
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("{} ", bar), bar_style),
+                Span::styled("···", theme::fold_style()),
+            ]));
+        } else {
+            // ── Header: selection bar + role + turn counter ──
+            let (role_label, role_style) = match turn.role {
+                ConversationRole::User => ("User", theme::conv_user_style()),
+                ConversationRole::Assistant => ("Assistant", theme::conv_assistant_style()),
+            };
 
-        lines.push(Line::from(vec![
-            Span::styled(format!("{} ", bar), bar_style),
-            Span::styled(role_label, role_style),
-            Span::raw(" "),
-            Span::styled(time_str, theme::fold_style()),
-            Span::raw(" ".repeat(padding)),
-            Span::styled(counter, theme::fold_style()),
-        ]));
+            let bar = if is_selected { "│" } else { " " };
+            let bar_style = if is_selected {
+                theme::selection_bar_style()
+            } else {
+                theme::body_style()
+            };
 
-        // Separator under header
-        lines.push(Line::from(Span::styled(
-            format!("  {}", theme::SEP_DASH.repeat(w.saturating_sub(4))),
-            theme::separator_style(),
-        )));
+            let time_str = format_conversation_time(turn.created_at.as_deref());
+            let counter = format!("[{}/{}]", turn_idx + 1, total);
+            let padding =
+                w.saturating_sub(4 + role_label.len() + 1 + time_str.len() + 1 + counter.len());
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("{} ", bar), bar_style),
+                Span::styled(role_label, role_style),
+                Span::raw(" "),
+                Span::styled(time_str, theme::fold_style()),
+                Span::raw(" ".repeat(padding)),
+                Span::styled(counter, theme::fold_style()),
+            ]));
+
+            // Separator under header
+            lines.push(Line::from(Span::styled(
+                format!("  {}", theme::SEP_DASH.repeat(w.saturating_sub(4))),
+                theme::separator_style(),
+            )));
+        }
 
         // ── Tool calls ──
-        if !turn.tool_calls.is_empty() {
+        if turn.tool_calls.len() == 1 {
+            // Single tool call: show inline without fold.
+            let tc = &turn.tool_calls[0];
+            if tc.summary.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("  [{}]", tc.name),
+                    theme::fold_style(),
+                )));
+            } else {
+                let wrap_width = usable.saturating_sub(8);
+                let wrapped = wrap_text(&tc.summary, wrap_width);
+                let first_max = usable.saturating_sub(6 + tc.name.len());
+                let first_chunk = wrap_text(wrapped[0].as_str(), first_max);
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  [{}]  ", tc.name), theme::fold_style()),
+                    Span::styled(first_chunk[0].clone(), theme::value_style()),
+                ]));
+                for line in first_chunk.iter().skip(1).chain(wrapped.iter().skip(1)) {
+                    lines.push(Line::from(Span::styled(
+                        format!("        {}", line),
+                        theme::value_style(),
+                    )));
+                }
+            }
+        } else if turn.tool_calls.len() > 1 {
+            // Multiple tool calls: foldable summary.
             let tool_names: Vec<&str> = turn.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
             let icon = if is_expanded { "\u{25be}" } else { "\u{25b8}" };
             let preview = tool_names.join(", ");
