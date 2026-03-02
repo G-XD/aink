@@ -8,6 +8,14 @@ AINK 是一款终端 TUI，用于发现、加载并分析 AI 编程会话记录�
 
 ---
 
+## 安装
+
+### Homebrew
+
+```bash
+brew install g-xd/tap/aink
+```
+
 ## 功能特点
 
 ### 多数据源会话发现

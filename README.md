@@ -8,6 +8,14 @@ AINK is a terminal UI (TUI) that discovers, loads, and analyzes AI coding sessio
 
 ---
 
+## Install
+
+### Homebrew
+
+```bash
+brew install g-xd/tap/aink
+```
+
 ## Features
 
 ### Multi-source transcript discovery
