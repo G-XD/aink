@@ -113,8 +113,7 @@ impl TranscriptData {
                 cache_read_tokens: self.cache_read_tokens,
                 ..Default::default()
             };
-            self.estimated_cost_usd =
-                crate::utils::prices::estimate_cost("cursor", &stats);
+            self.estimated_cost_usd = crate::utils::prices::estimate_cost("cursor", &stats);
         }
     }
 

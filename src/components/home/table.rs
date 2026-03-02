@@ -94,7 +94,7 @@ pub fn table_row(
         ))];
         let mut source_lines = vec![Line::from(Span::styled(
             format!("{}", source_kind),
-            theme::value_style(),
+            theme::source_style(source_kind),
         ))];
         let mut active_lines = vec![Line::from(active_str)];
         let cost_sty = theme::cost_style(data.estimated_cost_usd);
@@ -139,11 +139,7 @@ pub fn table_row(
 
         let row_height = (1 + models_sorted.len()) as u16;
 
-        let base_style = if index % 2 == 1 {
-            theme::zebra_style()
-        } else {
-            theme::body_style()
-        };
+        let base_style = theme::body_style();
 
         Row::new(vec![
             Cell::from(Text::from(indicator_lines)),
@@ -160,11 +156,7 @@ pub fn table_row(
         .height(row_height)
         .bottom_margin(1)
     } else {
-        let base_style = if index % 2 == 1 {
-            theme::zebra_style()
-        } else {
-            theme::body_style()
-        };
+        let base_style = theme::body_style();
 
         let summary = data
             .first_user_message
@@ -189,7 +181,7 @@ pub fn table_row(
             )),
             Cell::from(Span::styled(
                 format!("{}", source_kind),
-                theme::value_style(),
+                theme::source_style(source_kind),
             )),
             name_cell,
             Cell::from(models_str),

@@ -35,7 +35,7 @@ pub fn render_detail_header(
 
     let mut spans: Vec<Span> = vec![
         Span::styled(breadcrumb, theme::tab_inactive_style()),
-        Span::styled(source_badge, theme::value_style()),
+        Span::styled(source_badge, theme::source_style(data.source)),
         Span::raw(" "),
         Span::styled(name, theme::section_title_style()),
         Span::raw("    "),

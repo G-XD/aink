@@ -138,7 +138,7 @@ impl PriceTable {
             self.models.insert(
                 "cursor".to_string(),
                 ModelPricing {
-                    input_cost_per_token: 3e-6,  // $3/1M input
+                    input_cost_per_token: 3e-6,   // $3/1M input
                     output_cost_per_token: 15e-6, // $15/1M output
                     cache_creation_input_token_cost: 0.0,
                     cache_read_input_token_cost: 0.0,

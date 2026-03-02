@@ -5,6 +5,8 @@ use std::sync::OnceLock;
 
 use ratatui::style::{Color, Modifier, Style};
 
+use crate::collector::source::SourceKind;
+
 // ── Theme detection ──────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq)]
@@ -15,7 +17,6 @@ enum ThemeMode {
 
 struct Palette {
     cyan: Color,
-    teal: Color,
     magenta: Color,
     amber: Color,
     green: Color,
@@ -25,7 +26,6 @@ struct Palette {
     normal: Color,
     bright: Color,
     highlight_bg: Color,
-    zebra_bg: Color,
 }
 
 static PALETTE: OnceLock<Palette> = OnceLock::new();
@@ -48,32 +48,28 @@ fn detect_theme() -> ThemeMode {
 fn palette() -> &'static Palette {
     PALETTE.get_or_init(|| match detect_theme() {
         ThemeMode::Dark => Palette {
-            cyan: Color::Rgb(0, 255, 255),
-            teal: Color::Rgb(80, 200, 200),
-            magenta: Color::Rgb(255, 0, 255),
-            amber: Color::Rgb(255, 176, 0),
-            green: Color::Rgb(0, 255, 136),
-            red: Color::Rgb(255, 51, 102),
-            dim: Color::Rgb(88, 96, 110),
-            muted: Color::Rgb(138, 148, 164),
-            normal: Color::Rgb(180, 185, 195),
-            bright: Color::Rgb(230, 235, 245),
-            highlight_bg: Color::Rgb(25, 30, 45),
-            zebra_bg: Color::Rgb(18, 20, 28),
+            cyan: Color::Rgb(100, 200, 255),
+            magenta: Color::Rgb(200, 120, 255),
+            amber: Color::Rgb(255, 180, 50),
+            green: Color::Rgb(80, 250, 150),
+            red: Color::Rgb(255, 85, 110),
+            dim: Color::Rgb(55, 60, 85),
+            muted: Color::Rgb(130, 140, 175),
+            normal: Color::Rgb(200, 208, 225),
+            bright: Color::Rgb(240, 242, 250),
+            highlight_bg: Color::Rgb(55, 60, 130),
         },
         ThemeMode::Light => Palette {
-            cyan: Color::Rgb(0, 130, 155),
-            teal: Color::Rgb(0, 110, 120),
-            magenta: Color::Rgb(160, 0, 140),
-            amber: Color::Rgb(180, 110, 0),
-            green: Color::Rgb(0, 140, 60),
-            red: Color::Rgb(200, 30, 60),
-            dim: Color::Rgb(158, 164, 176),
-            muted: Color::Rgb(104, 110, 124),
-            normal: Color::Rgb(50, 55, 65),
-            bright: Color::Rgb(20, 25, 35),
-            highlight_bg: Color::Rgb(215, 220, 232),
-            zebra_bg: Color::Rgb(235, 238, 245),
+            cyan: Color::Rgb(0, 120, 190),
+            magenta: Color::Rgb(140, 50, 200),
+            amber: Color::Rgb(190, 100, 0),
+            green: Color::Rgb(0, 135, 60),
+            red: Color::Rgb(210, 40, 60),
+            dim: Color::Rgb(170, 175, 188),
+            muted: Color::Rgb(90, 96, 115),
+            normal: Color::Rgb(40, 45, 55),
+            bright: Color::Rgb(15, 18, 28),
+            highlight_bg: Color::Rgb(200, 210, 240),
         },
     })
 }
@@ -110,14 +106,14 @@ pub fn separator_style() -> Style {
 /// Section title (e.g. "Tokens", "Tool Calls").
 pub fn section_title_style() -> Style {
     Style::default()
-        .fg(palette().teal)
+        .fg(palette().cyan)
         .add_modifier(Modifier::BOLD)
 }
 
 /// Table header row.
 pub fn header_style() -> Style {
     Style::default()
-        .fg(palette().teal)
+        .fg(palette().cyan)
         .add_modifier(Modifier::BOLD)
 }
 
@@ -126,22 +122,19 @@ pub fn body_style() -> Style {
     Style::default().fg(palette().normal)
 }
 
-/// Selected row: entire row background + bright text.
+/// Selected row: entire row background + cyan text.
 pub fn highlight_style() -> Style {
     Style::default()
         .bg(palette().highlight_bg)
-        .fg(palette().bright)
+        .fg(palette().cyan)
         .add_modifier(Modifier::BOLD)
 }
 
 /// Selection indicator bar (left │).
 pub fn selection_bar_style() -> Style {
-    Style::default().fg(palette().cyan)
-}
-
-/// Zebra stripe background for odd rows.
-pub fn zebra_style() -> Style {
-    Style::default().bg(palette().zebra_bg).fg(palette().normal)
+    Style::default()
+        .fg(palette().amber)
+        .add_modifier(Modifier::BOLD)
 }
 
 /// Footer hints: description text.
@@ -151,7 +144,9 @@ pub fn footer_style() -> Style {
 
 /// Footer hints: key name (highlighted).
 pub fn footer_key_style() -> Style {
-    Style::default().fg(palette().cyan)
+    Style::default()
+        .fg(palette().amber)
+        .add_modifier(Modifier::BOLD)
 }
 
 /// Empty state message.
@@ -228,6 +223,16 @@ pub fn tree_style() -> Style {
 /// Bar chart: filled portion in green (for tool distribution).
 pub fn bar_filled_style_green() -> Style {
     Style::default().fg(palette().green)
+}
+
+/// Source kind badge: distinct color per AI tool.
+pub fn source_style(kind: SourceKind) -> Style {
+    let color = match kind {
+        SourceKind::Claude => Color::Rgb(230, 140, 60), // warm orange (Claude brand)
+        SourceKind::Cursor => Color::Rgb(90, 140, 255), // blue (Cursor brand)
+        SourceKind::Codex => Color::Rgb(50, 210, 130),  // green (OpenAI/Codex)
+    };
+    Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
 
 /// File name colored by extension category.

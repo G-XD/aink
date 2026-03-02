@@ -29,7 +29,6 @@ pub fn render_tab_bar(frame: &mut Frame, area: Rect, active_index: usize) {
         let tab_start = col;
         let first = &label[..1];
         let rest = &label[1..];
-        // " X... " = 1 + label.len() + 1
         let tab_width = 1 + label.len() + 1;
 
         if i == active_index {
