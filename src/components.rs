@@ -9,7 +9,6 @@ use crate::{action::Action, config::Config, tui::Event};
 
 pub mod analysis;
 pub mod common;
-pub mod fps;
 pub mod home;
 pub mod overview;
 pub mod tab_host;

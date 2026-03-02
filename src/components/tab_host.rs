@@ -6,12 +6,19 @@ use std::sync::Arc;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     prelude::*,
+    text::Span,
+    widgets::Paragraph,
 };
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use super::common::tab_bar;
-use crate::{action::Action, collector::transcript::SessionList, config::Config};
+use super::common::{tab_bar, theme};
+use crate::{
+    action::Action,
+    collector::transcript::SessionList,
+    config::Config,
+    utils::format::{format_cost, format_tokens},
+};
 
 use super::analysis::Analysis;
 use super::home::Home;
@@ -56,6 +63,47 @@ impl TabHost {
             self.active_tab = index;
             self.sync_data_to_tabs();
         }
+    }
+
+    fn render_summary(&self, frame: &mut Frame, area: Rect) {
+        let transcripts = self.sessions.transcripts();
+        if transcripts.is_empty() {
+            return;
+        }
+
+        let session_count = transcripts.len();
+        let (total_tokens, total_cost) =
+            transcripts
+                .iter()
+                .fold((0u64, 0.0f64), |(tokens, cost), (_, t)| {
+                    (
+                        tokens + t.input_tokens + t.output_tokens,
+                        cost + t.estimated_cost_usd,
+                    )
+                });
+
+        let [first_line, _] =
+            Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area);
+
+        let spans = vec![
+            Span::styled(format!("{} ", session_count), theme::stat_number_style()),
+            Span::styled("sessions · ", theme::footer_style()),
+            Span::styled(
+                format!("{} ", format_cost(total_cost)),
+                theme::cost_style(total_cost),
+            ),
+            Span::styled("· ", theme::footer_style()),
+            Span::styled(
+                format!("{} ", format_tokens(total_tokens)),
+                theme::stat_number_style(),
+            ),
+            Span::styled("tokens ", theme::footer_style()),
+        ];
+
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)).right_aligned(),
+            first_line,
+        );
     }
 }
 
@@ -169,6 +217,7 @@ impl Component for TabHost {
             Layout::vertical([Constraint::Length(2), Constraint::Min(3)]).areas(area);
 
         tab_bar::render_tab_bar(frame, tab_bar_area, self.active_tab);
+        self.render_summary(frame, tab_bar_area);
 
         match self.active_tab {
             0 => self.overview.draw(frame, content_area),

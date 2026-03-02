@@ -6,7 +6,7 @@ use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, fps::FpsCounter, tab_host::TabHost},
+    components::{Component, tab_host::TabHost},
     config::Config,
     tui::{Event, Tui},
 };
@@ -36,7 +36,7 @@ impl App {
         Ok(Self {
             tick_rate,
             frame_rate,
-            components: vec![Box::new(TabHost::new()), Box::new(FpsCounter::default())],
+            components: vec![Box::new(TabHost::new())],
             should_quit: false,
             should_suspend: false,
             config: Config::new()?,

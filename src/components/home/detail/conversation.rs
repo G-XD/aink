@@ -20,24 +20,6 @@ const AVG_TURN_LINES: usize = 6;
 
 pub const SECTION_MSG_PREFIX: &str = "msg_";
 
-/// Truncate a string to fit within `max_width` display columns.
-fn truncate_to_width(s: &str, max_width: usize) -> String {
-    if UnicodeWidthStr::width(s) <= max_width {
-        return s.to_string();
-    }
-    let mut width = 0;
-    let mut end = 0;
-    for (i, c) in s.char_indices() {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-        if width + cw > max_width.saturating_sub(1) {
-            break;
-        }
-        width += cw;
-        end = i + c.len_utf8();
-    }
-    format!("{}…", &s[..end])
-}
-
 /// Soft-wrap text at word boundaries to fit within `max_width` display columns.
 /// Falls back to character-level breaking for words longer than `max_width`.
 /// Uses unicode display width so CJK characters (2 columns each) wrap correctly.
@@ -119,7 +101,10 @@ fn estimate_turn_lines(turn: &ConversationTurn, is_expanded: bool, usable_w: usi
     if !turn.tool_calls.is_empty() {
         count += 1; // summary line
         if is_expanded {
-            count += turn.tool_calls.len();
+            let tc_width = usable_w.saturating_sub(12);
+            for tc in &turn.tool_calls {
+                count += estimate_wrapped(&tc.summary, tc_width).max(1);
+            }
         }
     }
 
@@ -280,16 +265,20 @@ pub fn detail_conversation_content(
                             theme::fold_style(),
                         )));
                     } else {
+                        let wrap_width = usable.saturating_sub(12);
+                        let wrapped = wrap_text(&tc.summary, wrap_width);
+                        let first_max = usable.saturating_sub(10 + tc.name.len());
+                        let first_chunk = wrap_text(wrapped[0].as_str(), first_max);
                         lines.push(Line::from(vec![
                             Span::styled(format!("      [{}]  ", tc.name), theme::fold_style()),
-                            Span::styled(
-                                truncate_to_width(
-                                    &tc.summary,
-                                    usable.saturating_sub(tc.name.len() + 10),
-                                ),
-                                theme::value_style(),
-                            ),
+                            Span::styled(first_chunk[0].clone(), theme::value_style()),
                         ]));
+                        for line in first_chunk.iter().skip(1).chain(wrapped.iter().skip(1)) {
+                            lines.push(Line::from(Span::styled(
+                                format!("            {}", line),
+                                theme::value_style(),
+                            )));
+                        }
                     }
                 }
             }
