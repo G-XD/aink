@@ -57,7 +57,41 @@ pub fn format_last_active(ts: Option<&str>) -> String {
     }
 }
 
-fn now_ymd() -> (i32, u32, u32) {
+/// Return `(year, month, day)` for N days before today.
+pub fn days_ago_ymd(n: u32) -> (i32, u32, u32) {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let days = (secs / 86400) as i32 - n as i32;
+    let (y, m, d) = civil_from_days(days);
+    (y, m as u32, d as u32)
+}
+
+/// Format a `(year, month, day)` tuple as `"YYYY-MM-DD"`.
+pub fn format_date_ymd(y: i32, m: u32, d: u32) -> String {
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+/// Parse a `"YYYY-MM-DD"` string into `(year, month, day)`, returning `None` on invalid input.
+pub fn parse_date_ymd(s: &str) -> Option<(i32, u32, u32)> {
+    if s.len() != 10 {
+        return None;
+    }
+    let y: i32 = s.get(0..4)?.parse().ok()?;
+    let m: u32 = s.get(5..7)?.parse().ok()?;
+    let d: u32 = s.get(8..10)?.parse().ok()?;
+    if s.as_bytes().get(4) != Some(&b'-') || s.as_bytes().get(7) != Some(&b'-') {
+        return None;
+    }
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some((y, m, d))
+}
+
+pub fn now_ymd() -> (i32, u32, u32) {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -68,7 +102,7 @@ fn now_ymd() -> (i32, u32, u32) {
     (y, mo as u32, d as u32)
 }
 
-fn civil_from_days(z: i32) -> (i32, i32, i32) {
+pub fn civil_from_days(z: i32) -> (i32, i32, i32) {
     let z = z + 719468;
     let era = z.div_euclid(146097);
     let doe = z.rem_euclid(146097) as u32;
@@ -112,5 +146,47 @@ pub fn format_cost(usd: f64) -> String {
         format!("${:.1}", usd)
     } else {
         format!("${:.2}", usd)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_days_ago_ymd_today() {
+        let today = now_ymd();
+        assert_eq!(days_ago_ymd(0), today);
+    }
+
+    #[test]
+    fn test_days_ago_ymd_7() {
+        let (y, m, d) = days_ago_ymd(7);
+        let today = now_ymd();
+        let today_str = format!("{:04}-{:02}-{:02}", today.0, today.1, today.2);
+        let ago_str = format!("{:04}-{:02}-{:02}", y, m, d);
+        assert!(ago_str < today_str);
+    }
+
+    #[test]
+    fn test_format_date_ymd() {
+        assert_eq!(format_date_ymd(2025, 1, 15), "2025-01-15");
+        assert_eq!(format_date_ymd(2026, 12, 3), "2026-12-03");
+    }
+
+    #[test]
+    fn test_parse_date_ymd_valid() {
+        assert_eq!(parse_date_ymd("2025-01-15"), Some((2025, 1, 15)));
+        assert_eq!(parse_date_ymd("2026-12-03"), Some((2026, 12, 3)));
+    }
+
+    #[test]
+    fn test_parse_date_ymd_invalid() {
+        assert_eq!(parse_date_ymd("not-a-date"), None);
+        assert_eq!(parse_date_ymd("2025-13-01"), None);
+        assert_eq!(parse_date_ymd("2025-00-01"), None);
+        assert_eq!(parse_date_ymd("2025-01-32"), None);
+        assert_eq!(parse_date_ymd("2025-01-00"), None);
+        assert_eq!(parse_date_ymd("short"), None);
     }
 }
