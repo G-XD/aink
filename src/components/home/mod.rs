@@ -29,7 +29,7 @@ use crate::{
     utils::project_name,
 };
 
-use crate::components::common::{footer, theme, time_filter::TimeFilter, time_filter_popup::{self, PopupState}};
+use crate::components::common::{footer, theme, time_filter::TimeFilter};
 use table::{
     COLUMN_WIDTHS, selection_next, selection_previous, set_selection, table_header, table_row,
 };
@@ -53,7 +53,6 @@ pub struct Home {
     load_rx: Option<std::sync::mpsc::Receiver<SessionList>>,
     spinner_tick: usize,
     time_filter: TimeFilter,
-    filter_popup: Option<PopupState>,
 }
 
 impl Default for Home {
@@ -74,7 +73,6 @@ impl Default for Home {
             load_rx: None,
             spinner_tick: 0,
             time_filter: TimeFilter::default(),
-            filter_popup: None,
         }
     }
 }
@@ -185,8 +183,27 @@ impl Home {
         self.time_filter.is_active()
     }
 
+    pub fn filter_label(&self) -> String {
+        self.time_filter.label()
+    }
+
+    pub fn time_filter(&self) -> &TimeFilter {
+        &self.time_filter
+    }
+
     pub fn all_transcript_count(&self) -> usize {
         self.all_transcripts.len()
+    }
+
+    pub fn set_time_filter(&mut self, filter: TimeFilter) {
+        self.time_filter = filter;
+        self.apply_filter_and_sort();
+        self.expand_state = ExpandState::default();
+        if !self.transcripts.is_empty() {
+            set_selection(&mut self.table_state, Some(0));
+        } else {
+            set_selection(&mut self.table_state, None);
+        }
     }
 
     fn source_for(&self, data: &TranscriptData) -> Option<&dyn TranscriptSource> {
@@ -215,10 +232,6 @@ impl Home {
 
     pub fn is_in_detail_view(&self) -> bool {
         matches!(self.view, View::Detail(_))
-    }
-
-    pub fn is_popup_open(&self) -> bool {
-        self.filter_popup.is_some()
     }
 
     fn enter_detail(&mut self, index: usize) {
@@ -289,10 +302,6 @@ impl Home {
                 self.apply_filter_and_sort();
                 self.expand_state = ExpandState::default();
                 set_selection(&mut self.table_state, Some(0));
-                Some(Action::Render)
-            }
-            KeyCode::Char('f') => {
-                self.filter_popup = Some(PopupState::new(&self.time_filter));
                 Some(Action::Render)
             }
             KeyCode::Enter => {
@@ -437,29 +446,6 @@ impl Component for Home {
         &mut self,
         key: crossterm::event::KeyEvent,
     ) -> color_eyre::Result<Option<Action>> {
-        // If popup is open, delegate to popup
-        if let Some(ref mut popup) = self.filter_popup {
-            if let Some(result) = popup.handle_key(key) {
-                match result {
-                    Some(filter) => {
-                        self.time_filter = filter;
-                        self.filter_popup = None;
-                        self.apply_filter_and_sort();
-                        self.expand_state = ExpandState::default();
-                        if !self.transcripts.is_empty() {
-                            set_selection(&mut self.table_state, Some(0));
-                        } else {
-                            set_selection(&mut self.table_state, None);
-                        }
-                    }
-                    None => {
-                        self.filter_popup = None;
-                    }
-                }
-            }
-            return Ok(Some(Action::Render));
-        }
-
         let action = match &self.view {
             View::List => self.handle_list_key(key),
             View::Detail(_) => self.handle_detail_key(key),
@@ -540,35 +526,9 @@ impl Component for Home {
                     ("q", "quit"),
                 ]);
 
-                // Footer: hints left, filter label right
-                let filter_label_text = self.time_filter.label();
-                let filter_label_len = filter_label_text.len() as u16 + 3; // brackets + padding
-                let [hints_area, filter_area] =
-                    Layout::horizontal([Constraint::Min(20), Constraint::Length(filter_label_len)])
-                        .areas(footer_area);
-
-                let hint = Paragraph::new(footer::footer_hints(&hints));
-                frame.render_widget(hint, hints_area);
-
-                let filter_style = if self.time_filter.is_active() {
-                    theme::tab_active_style()
-                } else {
-                    theme::footer_style()
-                };
-                let filter_label = Line::from(vec![
-                    Span::styled("[", theme::footer_style()),
-                    Span::styled(filter_label_text, filter_style),
-                    Span::styled("]", theme::footer_style()),
-                ]);
-                frame.render_widget(
-                    Paragraph::new(filter_label).right_aligned(),
-                    filter_area,
-                );
-
-                // Popup overlay
-                if let Some(ref popup) = self.filter_popup {
-                    time_filter_popup::render_popup(frame, area, popup);
-                }
+                let hint =
+                    Paragraph::new(footer::footer_hints(&hints)).alignment(Alignment::Center);
+                frame.render_widget(hint, footer_area);
             }
             View::Detail(ds) => {
                 if ds.index < self.transcripts.len() {

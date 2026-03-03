@@ -91,6 +91,17 @@ impl PopupState {
                     Some(Some(self.build_filter()))
                 }
             }
+            // Auto-enter input mode when typing digits/dash on Custom preset
+            KeyCode::Char(c)
+                if (c.is_ascii_digit() || c == '-')
+                    && self.selected_kind() == PresetKind::Custom =>
+            {
+                self.focus = Focus::FromInput;
+                if self.from_input.len() < 10 {
+                    self.from_input.push(c);
+                }
+                None
+            }
             _ => None,
         }
     }

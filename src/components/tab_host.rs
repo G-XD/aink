@@ -12,7 +12,11 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use super::common::{tab_bar, theme, time_filter::TimeFilter};
+use super::common::{
+    tab_bar, theme,
+    time_filter::TimeFilter,
+    time_filter_popup::{self, PopupState},
+};
 use crate::{
     action::Action,
     collector::transcript::SessionList,
@@ -33,6 +37,7 @@ pub struct TabHost {
     sessions: Home,
     analysis: Analysis,
     command_tx: Option<UnboundedSender<Action>>,
+    filter_popup: Option<PopupState>,
 }
 
 impl Default for TabHost {
@@ -43,6 +48,7 @@ impl Default for TabHost {
             sessions: Home::default(),
             analysis: Analysis::new(),
             command_tx: None,
+            filter_popup: None,
         }
     }
 }
@@ -55,6 +61,7 @@ impl TabHost {
             sessions: Home::new(initial_filter),
             analysis: Analysis::new(),
             command_tx: None,
+            filter_popup: None,
         }
     }
 
@@ -98,6 +105,14 @@ impl TabHost {
             format!("{} ", session_count)
         };
 
+        // Filter label (always shown)
+        let filter_label_text = self.sessions.filter_label();
+        let filter_style = if self.sessions.is_filter_active() {
+            theme::tab_active_style()
+        } else {
+            theme::footer_style()
+        };
+
         let spans = vec![
             Span::styled(session_label, theme::stat_number_style()),
             Span::styled("sessions · ", theme::footer_style()),
@@ -111,6 +126,9 @@ impl TabHost {
                 theme::stat_number_style(),
             ),
             Span::styled("tokens ", theme::footer_style()),
+            Span::styled("[", theme::footer_style()),
+            Span::styled(filter_label_text, filter_style),
+            Span::styled("]  ", theme::footer_style()),
         ];
 
         frame.render_widget(
@@ -139,8 +157,8 @@ impl Component for TabHost {
     }
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
-        let suppress_tab = self.active_tab == 1
-            && (self.sessions.is_in_detail_view() || self.sessions.is_popup_open());
+        let suppress_tab = self.filter_popup.is_some()
+            || (self.active_tab == 1 && self.sessions.is_in_detail_view());
         match &action {
             Action::TabNext => {
                 if suppress_tab {
@@ -184,23 +202,41 @@ impl Component for TabHost {
     ) -> color_eyre::Result<Option<Action>> {
         use crossterm::event::KeyCode;
 
-        // Popup and detail view get first crack at keys
-        if self.active_tab == 1
-            && (self.sessions.is_in_detail_view() || self.sessions.is_popup_open())
-        {
+        // Filter popup gets first crack at all keys
+        if let Some(ref mut popup) = self.filter_popup {
+            if let Some(result) = popup.handle_key(key) {
+                match result {
+                    Some(filter) => {
+                        self.filter_popup = None;
+                        self.sessions.set_time_filter(filter);
+                        self.sync_data_to_tabs();
+                    }
+                    None => {
+                        self.filter_popup = None;
+                    }
+                }
+            }
+            return Ok(Some(Action::Render));
+        }
+
+        // Detail view gets first crack at keys
+        if self.active_tab == 1 && self.sessions.is_in_detail_view() {
             let result = self.sessions.handle_key_event(key)?;
             if result.is_some() {
                 return Ok(result);
             }
         }
 
-        let suppress_keys = self.active_tab == 1
-            && (self.sessions.is_in_detail_view() || self.sessions.is_popup_open());
+        let suppress_keys = self.active_tab == 1 && self.sessions.is_in_detail_view();
 
         if !suppress_keys {
             match key.code {
                 KeyCode::Char('q') => {
                     return Ok(Some(Action::Quit));
+                }
+                KeyCode::Char('f') => {
+                    self.filter_popup = Some(PopupState::new(self.sessions.time_filter()));
+                    return Ok(Some(Action::Render));
                 }
                 KeyCode::Char('O') => {
                     self.switch_tab(0);
@@ -240,11 +276,18 @@ impl Component for TabHost {
         tab_bar::render_tab_bar(frame, tab_bar_area, self.active_tab);
         self.render_summary(frame, tab_bar_area);
 
-        match self.active_tab {
+        let result = match self.active_tab {
             0 => self.overview.draw(frame, content_area),
             1 => self.sessions.draw(frame, content_area),
             2 => self.analysis.draw(frame, content_area),
             _ => Ok(()),
+        };
+
+        // Popup overlay (rendered on top of any tab)
+        if let Some(ref popup) = self.filter_popup {
+            time_filter_popup::render_popup(frame, area, popup);
         }
+
+        result
     }
 }

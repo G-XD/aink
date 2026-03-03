@@ -10,7 +10,10 @@ pub enum TimeFilter {
     Today,
     Last7Days,
     Last30Days,
-    Custom { from: String, to: String },
+    Custom {
+        from: String,
+        to: String,
+    },
 }
 
 fn month_abbrev(m: u32) -> &'static str {
@@ -226,10 +229,7 @@ mod tests {
         assert_eq!(TimeFilter::from_range_arg("garbage"), None);
         assert_eq!(TimeFilter::from_range_arg(""), None);
         // from > to should be rejected
-        assert_eq!(
-            TimeFilter::from_range_arg("2025-03-01..2025-01-01"),
-            None
-        );
+        assert_eq!(TimeFilter::from_range_arg("2025-03-01..2025-01-01"), None);
     }
 
     #[test]
@@ -238,10 +238,12 @@ mod tests {
         assert!(TimeFilter::Today.is_active());
         assert!(TimeFilter::Last7Days.is_active());
         assert!(TimeFilter::Last30Days.is_active());
-        assert!(TimeFilter::Custom {
-            from: "2025-01-15".into(),
-            to: "2025-02-01".into()
-        }
-        .is_active());
+        assert!(
+            TimeFilter::Custom {
+                from: "2025-01-15".into(),
+                to: "2025-02-01".into()
+            }
+            .is_active()
+        );
     }
 }
