@@ -217,6 +217,10 @@ impl Home {
         matches!(self.view, View::Detail(_))
     }
 
+    pub fn is_popup_open(&self) -> bool {
+        self.filter_popup.is_some()
+    }
+
     fn enter_detail(&mut self, index: usize) {
         let (path, data) = &self.transcripts[index];
         self.detail_conversation = self

@@ -139,17 +139,18 @@ impl Component for TabHost {
     }
 
     fn update(&mut self, action: Action) -> color_eyre::Result<Option<Action>> {
-        let in_detail = self.active_tab == 1 && self.sessions.is_in_detail_view();
+        let suppress_tab = self.active_tab == 1
+            && (self.sessions.is_in_detail_view() || self.sessions.is_popup_open());
         match &action {
             Action::TabNext => {
-                if in_detail {
+                if suppress_tab {
                     return Ok(None);
                 }
                 self.switch_tab((self.active_tab + 1) % TAB_COUNT);
                 Ok(Some(Action::Render))
             }
             Action::TabPrev => {
-                if in_detail {
+                if suppress_tab {
                     return Ok(None);
                 }
                 self.switch_tab((self.active_tab + TAB_COUNT - 1) % TAB_COUNT);
@@ -183,16 +184,20 @@ impl Component for TabHost {
     ) -> color_eyre::Result<Option<Action>> {
         use crossterm::event::KeyCode;
 
-        if self.active_tab == 1 && self.sessions.is_in_detail_view() {
+        // Popup and detail view get first crack at keys
+        if self.active_tab == 1
+            && (self.sessions.is_in_detail_view() || self.sessions.is_popup_open())
+        {
             let result = self.sessions.handle_key_event(key)?;
             if result.is_some() {
                 return Ok(result);
             }
         }
 
-        let in_detail = self.active_tab == 1 && self.sessions.is_in_detail_view();
+        let suppress_keys = self.active_tab == 1
+            && (self.sessions.is_in_detail_view() || self.sessions.is_popup_open());
 
-        if !in_detail {
+        if !suppress_keys {
             match key.code {
                 KeyCode::Char('q') => {
                     return Ok(Some(Action::Quit));
@@ -213,7 +218,7 @@ impl Component for TabHost {
             }
         }
 
-        if in_detail {
+        if suppress_keys {
             return Ok(None);
         }
         match self.active_tab {
