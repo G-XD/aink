@@ -73,7 +73,7 @@ impl TabHost {
 
     fn render_summary(&self, frame: &mut Frame, area: Rect) {
         let transcripts = self.sessions.transcripts();
-        if transcripts.is_empty() {
+        if transcripts.is_empty() && !self.sessions.is_filter_active() {
             return;
         }
 
@@ -91,8 +91,15 @@ impl TabHost {
         let [first_line, _] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).areas(area);
 
+        let session_label = if self.sessions.is_filter_active() {
+            let total = self.sessions.all_transcript_count();
+            format!("{}/{} ", session_count, total)
+        } else {
+            format!("{} ", session_count)
+        };
+
         let spans = vec![
-            Span::styled(format!("{} ", session_count), theme::stat_number_style()),
+            Span::styled(session_label, theme::stat_number_style()),
             Span::styled("sessions · ", theme::footer_style()),
             Span::styled(
                 format!("{} ", format_cost(total_cost)),
