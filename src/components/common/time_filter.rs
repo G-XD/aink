@@ -1,6 +1,6 @@
 //! Time range filter: pure data + logic, no UI coupling.
 
-use crate::utils::format::{days_ago_ymd, format_date_ymd, parse_date_ymd};
+use crate::utils::format::{days_ago_ymd, format_date_ymd, parse_date_ymd, ts_to_local_date};
 
 /// Time range filter for session list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -88,12 +88,14 @@ impl TimeFilter {
         let Some(ts) = end_time else {
             return false;
         };
-        if ts.len() < 10 {
-            return false;
-        }
-        let date = &ts[..10];
+        // Convert timestamp to local date for comparison (UTC→local if 'Z' suffix)
+        let date = match ts_to_local_date(ts) {
+            Some(d) => d,
+            None if ts.len() >= 10 => ts[..10].to_string(),
+            None => return false,
+        };
         let (start, end) = self.date_range();
-        date >= start.as_str() && date <= end.as_str()
+        date.as_str() >= start.as_str() && date.as_str() <= end.as_str()
     }
 
     /// Parse a CLI argument into a `TimeFilter`.
@@ -200,11 +202,12 @@ mod tests {
             from: "2025-01-15".into(),
             to: "2025-02-01".into(),
         };
-        assert!(filter.matches(&Some("2025-01-15T10:00:00Z".into())));
-        assert!(filter.matches(&Some("2025-01-20T00:00:00Z".into())));
-        assert!(filter.matches(&Some("2025-02-01T23:59:59Z".into())));
-        assert!(!filter.matches(&Some("2025-01-14T23:59:59Z".into())));
-        assert!(!filter.matches(&Some("2025-02-02T00:00:00Z".into())));
+        // Use mid-day timestamps to avoid timezone boundary issues
+        assert!(filter.matches(&Some("2025-01-15T12:00:00Z".into())));
+        assert!(filter.matches(&Some("2025-01-20T12:00:00Z".into())));
+        assert!(filter.matches(&Some("2025-02-01T12:00:00Z".into())));
+        assert!(!filter.matches(&Some("2025-01-14T12:00:00Z".into())));
+        assert!(!filter.matches(&Some("2025-02-02T12:00:00Z".into())));
         assert!(!filter.matches(&None));
     }
 

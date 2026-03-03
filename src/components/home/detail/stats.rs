@@ -5,13 +5,11 @@ use ratatui::text::Line;
 
 use crate::collector::transcript::TranscriptData;
 use crate::components::common::theme;
-use crate::utils::format::{format_cost, format_duration, format_tokens};
+use crate::utils::format::{format_cost, format_duration, format_tokens, parse_local_datetime};
 
 fn format_timestamp(ts: &str) -> String {
-    if ts.len() >= 16 {
-        let date_part = &ts[..10];
-        let time_part = &ts[11..16];
-        format!("{} {}", date_part, time_part)
+    if let Some((y, mo, d, h, mi)) = parse_local_datetime(ts) {
+        format!("{:04}-{:02}-{:02} {:02}:{:02}", y, mo, d, h, mi)
     } else {
         ts.to_string()
     }

@@ -26,25 +26,81 @@ pub fn format_duration(ms: u64) -> String {
     }
 }
 
+/// Get the local timezone offset from UTC in seconds.
+fn utc_offset_secs() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let epoch_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe { libc::localtime_r(&epoch_secs, &mut tm) };
+    tm.tm_gmtoff as i64
+}
+
+/// Convert (year, month, day) to days since Unix epoch (inverse of `civil_from_days`).
+fn days_from_civil(y: i32, m: u32, d: u32) -> i32 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y.rem_euclid(400) as u32;
+    let m_adj = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * m_adj + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe as i32 - 719468
+}
+
+/// Convert UTC timestamp components to local time.
+fn utc_to_local(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> (i32, u32, u32, u32, u32) {
+    let offset = utc_offset_secs();
+    let days = days_from_civil(y, mo, d);
+    let total_secs = days as i64 * 86400 + h as i64 * 3600 + mi as i64 * 60 + offset;
+    let local_days = total_secs.div_euclid(86400) as i32;
+    let rem = total_secs.rem_euclid(86400) as u32;
+    let (ly, lm, ld) = civil_from_days(local_days);
+    (ly, lm as u32, ld as u32, rem / 3600, (rem % 3600) / 60)
+}
+
+/// Parse an ISO 8601 timestamp and return `(y, mo, d, h, mi)` in local time.
+///
+/// If the timestamp ends with `'Z'` (UTC), it is converted to local time.
+/// Otherwise (e.g. Cursor local timestamps), it is returned as-is.
+pub fn parse_local_datetime(ts: &str) -> Option<(i32, u32, u32, u32, u32)> {
+    if ts.len() < 16 {
+        return None;
+    }
+    let y: i32 = ts[0..4].parse().ok()?;
+    let mo: u32 = ts[5..7].parse().ok()?;
+    let d: u32 = ts[8..10].parse().ok()?;
+    let h: u32 = ts[11..13].parse().ok()?;
+    let mi: u32 = ts[14..16].parse().ok()?;
+    if ts.ends_with('Z') {
+        Some(utc_to_local(y, mo, d, h, mi))
+    } else {
+        Some((y, mo, d, h, mi))
+    }
+}
+
+/// Convert an ISO 8601 timestamp to a local `"YYYY-MM-DD"` date string.
+///
+/// UTC timestamps (ending with `'Z'`) are converted; others are kept as-is.
+pub fn ts_to_local_date(ts: &str) -> Option<String> {
+    let (y, m, d, _, _) = parse_local_datetime(ts)?;
+    Some(format!("{:04}-{:02}-{:02}", y, m, d))
+}
+
 /// Format an ISO 8601 timestamp into a compact relative or date string for table display.
 ///
+/// UTC timestamps (ending with `'Z'`) are converted to local time; others are kept as-is.
 /// - Today: "HH:MM"
-/// - Yesterday: "Yesterday"
 /// - This year: "MM-DD"
 /// - Older: "YY-MM-DD"
 pub fn format_last_active(ts: Option<&str>) -> String {
     let Some(ts) = ts else {
         return "—".to_string();
     };
-    if ts.len() < 16 {
+    let Some((y, mo, d, h, mi)) = parse_local_datetime(ts) else {
         return ts.to_string();
-    }
-
-    let y: i32 = ts[0..4].parse().unwrap_or(0);
-    let mo: u32 = ts[5..7].parse().unwrap_or(0);
-    let d: u32 = ts[8..10].parse().unwrap_or(0);
-    let h: u32 = ts[11..13].parse().unwrap_or(0);
-    let mi: u32 = ts[14..16].parse().unwrap_or(0);
+    };
 
     let now = now_ymd();
 
@@ -57,14 +113,15 @@ pub fn format_last_active(ts: Option<&str>) -> String {
     }
 }
 
-/// Return `(year, month, day)` for N days before today.
+/// Return `(year, month, day)` in local timezone for N days before today.
 pub fn days_ago_ymd(n: u32) -> (i32, u32, u32) {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let days = (secs / 86400) as i32 - n as i32;
+    let local_secs = secs + utc_offset_secs();
+    let days = (local_secs.div_euclid(86400)) as i32 - n as i32;
     let (y, m, d) = civil_from_days(days);
     (y, m as u32, d as u32)
 }
@@ -91,13 +148,15 @@ pub fn parse_date_ymd(s: &str) -> Option<(i32, u32, u32)> {
     Some((y, m, d))
 }
 
+/// Return `(year, month, day)` for the current local date.
 pub fn now_ymd() -> (i32, u32, u32) {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let days = (secs / 86400) as i32;
+    let local_secs = secs + utc_offset_secs();
+    let days = local_secs.div_euclid(86400) as i32;
     let (y, mo, d) = civil_from_days(days);
     (y, mo as u32, d as u32)
 }
@@ -117,18 +176,15 @@ pub fn civil_from_days(z: i32) -> (i32, i32, i32) {
 }
 
 /// Format an ISO 8601 timestamp for conversation list: "HH:MM" or "MM-DD HH:MM".
+///
+/// UTC timestamps (ending with `'Z'`) are converted to local time; others are kept as-is.
 pub fn format_conversation_time(ts: Option<&str>) -> String {
     let Some(ts) = ts else {
         return "—".to_string();
     };
-    if ts.len() < 16 {
+    let Some((y, mo, d, h, mi)) = parse_local_datetime(ts) else {
         return ts.to_string();
-    }
-    let y: i32 = ts[0..4].parse().unwrap_or(0);
-    let mo: u32 = ts[5..7].parse().unwrap_or(0);
-    let d: u32 = ts[8..10].parse().unwrap_or(0);
-    let h: u32 = ts[11..13].parse().unwrap_or(0);
-    let mi: u32 = ts[14..16].parse().unwrap_or(0);
+    };
     let now = now_ymd();
     if (y, mo, d) == now {
         format!("{:02}:{:02}", h, mi)
