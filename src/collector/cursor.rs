@@ -877,7 +877,7 @@ fn summarize_tool_args(tool_name: &str, raw_args: &str) -> String {
     };
     let get_str = |key: &str| obj.get(key).and_then(|v| v.as_str()).map(|s| s.to_string());
 
-    let raw = match tool_name {
+    match tool_name {
         s if s.contains("read_file") || s.contains("write") || s.contains("edit") => {
             get_str("file_path")
                 .or_else(|| get_str("filePath"))
@@ -902,8 +902,7 @@ fn summarize_tool_args(tool_name: &str, raw_args: &str) -> String {
             .iter()
             .find_map(|(k, v)| v.as_str().map(|s| format!("{}: {}", k, s)))
             .unwrap_or_default(),
-    };
-    raw
+    }
 }
 
 fn truncate_to(s: &str, max_len: usize) -> String {

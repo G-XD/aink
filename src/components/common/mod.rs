@@ -4,3 +4,4 @@
 pub mod footer;
 pub mod tab_bar;
 pub mod theme;
+pub mod time_filter;
