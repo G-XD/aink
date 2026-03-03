@@ -29,7 +29,7 @@ use crate::{
     utils::project_name,
 };
 
-use crate::components::common::{footer, theme};
+use crate::components::common::{footer, theme, time_filter::TimeFilter};
 use table::{
     COLUMN_WIDTHS, selection_next, selection_previous, set_selection, table_header, table_row,
 };
@@ -41,6 +41,7 @@ pub struct Home {
     command_tx: Option<UnboundedSender<Action>>,
     config: Config,
     sources: Arc<Vec<Box<dyn TranscriptSource>>>,
+    all_transcripts: SessionList,
     transcripts: SessionList,
     display_names: Vec<String>,
     table_state: TableState,
@@ -51,6 +52,7 @@ pub struct Home {
     loading: bool,
     load_rx: Option<std::sync::mpsc::Receiver<SessionList>>,
     spinner_tick: usize,
+    time_filter: TimeFilter,
 }
 
 impl Default for Home {
@@ -59,6 +61,7 @@ impl Default for Home {
             command_tx: None,
             config: Config::default(),
             sources: Arc::new(Vec::new()),
+            all_transcripts: Vec::new(),
             transcripts: Vec::new(),
             display_names: Vec::new(),
             table_state: TableState::default(),
@@ -69,13 +72,17 @@ impl Default for Home {
             loading: false,
             load_rx: None,
             spinner_tick: 0,
+            time_filter: TimeFilter::default(),
         }
     }
 }
 
 impl Home {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(initial_filter: TimeFilter) -> Self {
+        Self {
+            time_filter: initial_filter,
+            ..Self::default()
+        }
     }
 
     fn start_loading(&mut self) {
@@ -99,9 +106,8 @@ impl Home {
     }
 
     fn finish_loading(&mut self, data: SessionList) {
-        self.transcripts = data;
-        self.rebuild_display_names();
-        self.apply_sort();
+        self.all_transcripts = data;
+        self.apply_filter_and_sort();
         self.view = View::List;
         if !self.transcripts.is_empty() {
             set_selection(&mut self.table_state, Some(0));
@@ -120,7 +126,19 @@ impl Home {
             .collect();
     }
 
-    fn apply_sort(&mut self) {
+    fn apply_filter_and_sort(&mut self) {
+        // Filter
+        self.transcripts = self
+            .all_transcripts
+            .iter()
+            .filter(|(_, data)| {
+                let ts = data.end_time.as_ref().or(data.start_time.as_ref()).cloned();
+                self.time_filter.matches(&ts)
+            })
+            .cloned()
+            .collect();
+
+        // Sort
         let col = self.sort.column;
         let asc = self.sort.ascending;
         self.transcripts.sort_by(|a, b| {
@@ -153,11 +171,20 @@ impl Home {
             };
             if asc { cmp } else { cmp.reverse() }
         });
+
         self.rebuild_display_names();
     }
 
     pub fn transcripts(&self) -> &SessionList {
         &self.transcripts
+    }
+
+    pub fn is_filter_active(&self) -> bool {
+        self.time_filter.is_active()
+    }
+
+    pub fn all_transcript_count(&self) -> usize {
+        self.all_transcripts.len()
     }
 
     fn source_for(&self, data: &TranscriptData) -> Option<&dyn TranscriptSource> {
@@ -232,7 +259,7 @@ impl Home {
             KeyCode::Char('>') | KeyCode::Char('.') => {
                 if let Some(next) = self.sort.column.next() {
                     self.sort.column = next;
-                    self.apply_sort();
+                    self.apply_filter_and_sort();
                     self.expand_state = ExpandState::default();
                     set_selection(&mut self.table_state, Some(0));
                     Some(Action::Render)
@@ -243,7 +270,7 @@ impl Home {
             KeyCode::Char('<') | KeyCode::Char(',') => {
                 if let Some(prev) = self.sort.column.prev() {
                     self.sort.column = prev;
-                    self.apply_sort();
+                    self.apply_filter_and_sort();
                     self.expand_state = ExpandState::default();
                     set_selection(&mut self.table_state, Some(0));
                     Some(Action::Render)
@@ -253,7 +280,7 @@ impl Home {
             }
             KeyCode::Char('s') => {
                 self.sort.ascending = !self.sort.ascending;
-                self.apply_sort();
+                self.apply_filter_and_sort();
                 self.expand_state = ExpandState::default();
                 set_selection(&mut self.table_state, Some(0));
                 Some(Action::Render)
@@ -385,6 +412,7 @@ impl Component for Home {
             }
             Action::RefreshTranscripts => {
                 if !self.loading {
+                    self.all_transcripts.clear();
                     self.transcripts.clear();
                     self.display_names.clear();
                     self.start_loading();

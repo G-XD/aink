@@ -12,7 +12,7 @@ use ratatui::{
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::Component;
-use super::common::{tab_bar, theme};
+use super::common::{tab_bar, theme, time_filter::TimeFilter};
 use crate::{
     action::Action,
     collector::transcript::SessionList,
@@ -40,7 +40,7 @@ impl Default for TabHost {
         Self {
             active_tab: DEFAULT_TAB,
             overview: Overview::new(),
-            sessions: Home::new(),
+            sessions: Home::default(),
             analysis: Analysis::new(),
             command_tx: None,
         }
@@ -48,8 +48,14 @@ impl Default for TabHost {
 }
 
 impl TabHost {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(initial_filter: TimeFilter) -> Self {
+        Self {
+            active_tab: DEFAULT_TAB,
+            overview: Overview::new(),
+            sessions: Home::new(initial_filter),
+            analysis: Analysis::new(),
+            command_tx: None,
+        }
     }
 
     fn sync_data_to_tabs(&mut self) {

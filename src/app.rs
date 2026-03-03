@@ -6,7 +6,7 @@ use tracing::{debug, info};
 
 use crate::{
     action::Action,
-    components::{Component, tab_host::TabHost},
+    components::{Component, common::time_filter::TimeFilter, tab_host::TabHost},
     config::Config,
     tui::{Event, Tui},
 };
@@ -29,10 +29,10 @@ pub enum Mode {
 }
 
 impl App {
-    pub fn new() -> color_eyre::Result<Self> {
+    pub fn new(initial_filter: TimeFilter) -> color_eyre::Result<Self> {
         let (action_tx, action_rx) = mpsc::unbounded_channel();
         Ok(Self {
-            components: vec![Box::new(TabHost::new())],
+            components: vec![Box::new(TabHost::new(initial_filter))],
             should_quit: false,
             should_suspend: false,
             config: Config::new()?,

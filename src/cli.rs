@@ -4,7 +4,11 @@ use crate::config::{get_config_dir, get_data_dir};
 
 #[derive(Parser, Debug)]
 #[command(author, version = version(), about)]
-pub struct Cli {}
+pub struct Cli {
+    /// Filter sessions by time range: "today", "7d", "30d", or "YYYY-MM-DD..YYYY-MM-DD"
+    #[arg(long)]
+    pub range: Option<String>,
+}
 
 const VERSION_MESSAGE: &str = concat!(
     env!("CARGO_PKG_VERSION"),
