@@ -32,6 +32,9 @@ pub struct TranscriptData {
     pub tool_call_by_type: HashMap<String, u64>,
     pub files_touched: Vec<String>,
     pub first_user_message: Option<String>,
+    /// Source-provided session summary (e.g. Cursor's `name` field).
+    /// Preferred over `first_user_message` for display when available.
+    pub summary: Option<String>,
     pub per_model: HashMap<String, ModelStats>,
     pub duration_ms: u64,
     pub turn_count: u64,

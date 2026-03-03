@@ -170,8 +170,9 @@ pub fn table_row(
         let base_style = theme::body_style();
 
         let summary = data
-            .first_user_message
+            .summary
             .as_deref()
+            .or(data.first_user_message.as_deref())
             .unwrap_or("")
             .chars()
             .take(SESSION_NAME_MAX_LEN)

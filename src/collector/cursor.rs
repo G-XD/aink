@@ -455,6 +455,7 @@ impl LightAccumulator {
             tool_call_by_type: self.tool_counts,
             files_touched: Vec::new(),
             first_user_message: self.first_user_message,
+            summary: None,
             per_model: self.per_model,
             duration_ms,
             turn_count: self.user_message_count,
@@ -474,6 +475,7 @@ impl LightAccumulator {
 // ── SQLite helpers ──────────────────────────────────────────────────────────
 
 /// Enrich session data from `composerData` entries in the DB:
+/// - Summary: the `name` field (user-visible session title in Cursor UI).
 /// - Model: always merge `modelConfig.modelName` into the session set (Cursor only stores
 ///   the current selection here, not history; per-bubble `modelInfo.modelName` when present
 ///   gives per-message model, so together we show bubble-derived models + current selection).
@@ -501,7 +503,8 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
     let mut stmt = match conn.prepare(
         "SELECT c.key, \
                 json_extract(c.value, '$.modelConfig.modelName'), \
-                j.key \
+                j.key, \
+                json_extract(c.value, '$.name') \
          FROM cursorDiskKV AS c \
          LEFT JOIN json_each(json_extract(c.value, '$.originalFileStates')) AS j \
          WHERE c.key >= 'composerData:' AND c.key < 'composerData;'",
@@ -518,6 +521,7 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
             row.get::<_, String>(0)?,
             row.get::<_, Option<String>>(1)?,
             row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<String>>(3)?,
         ))
     }) {
         Ok(r) => r,
@@ -528,7 +532,7 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
     };
 
     for row in rows.flatten() {
-        let (key, model, file_key) = row;
+        let (key, model, file_key, name) = row;
         let cid = match key.strip_prefix("composerData:") {
             Some(id) => id,
             None => continue,
@@ -539,6 +543,11 @@ fn backfill_from_composer_data(db_path: &Path, sessions: &mut [(PathBuf, Transcr
         };
 
         let (_, data) = &mut sessions[idx];
+        if data.summary.is_none()
+            && let Some(n) = name.filter(|s| !s.is_empty())
+        {
+            data.summary = Some(n);
+        }
         if let Some(name) = model.filter(|s| !s.is_empty()) {
             data.models.insert(name.clone());
             data.per_model.entry(name).or_default();

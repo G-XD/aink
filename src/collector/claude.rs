@@ -122,6 +122,7 @@ impl TranscriptSource for ClaudeSource {
                 }
             }
         }
+        backfill_summaries(&mut out);
         out
     }
 }
@@ -244,6 +245,7 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
         tool_call_by_type: acc.tool_counts,
         files_touched: acc.files,
         first_user_message,
+        summary: None,
         per_model: acc.per_model,
         duration_ms,
         turn_count,
@@ -582,6 +584,57 @@ fn merge_subagent(parent: &mut TranscriptData, sub: &TranscriptData) {
         entry.cache_creation_tokens += stats.cache_creation_tokens;
         entry.cache_read_tokens += stats.cache_read_tokens;
         entry.tool_call_count += stats.tool_call_count;
+    }
+}
+
+// ── Sessions-index summary backfill ──────────────────────────────────────
+
+#[derive(Deserialize)]
+struct SessionsIndex {
+    #[serde(default)]
+    entries: Vec<SessionsIndexEntry>,
+}
+
+#[derive(Deserialize)]
+struct SessionsIndexEntry {
+    #[serde(rename = "fullPath", default)]
+    full_path: String,
+    #[serde(default)]
+    summary: Option<String>,
+}
+
+/// Read `sessions-index.json` files alongside loaded transcripts and populate
+/// the `summary` field from the index's AI-generated session summaries.
+fn backfill_summaries(out: &mut [(PathBuf, TranscriptData)]) {
+    let mut dirs: HashSet<&Path> = HashSet::new();
+    for (path, _) in out.iter() {
+        if let Some(parent) = path.parent() {
+            dirs.insert(parent);
+        }
+    }
+
+    let mut summaries: HashMap<PathBuf, String> = HashMap::new();
+    for dir in dirs {
+        let index_path = dir.join("sessions-index.json");
+        let content = match std::fs::read_to_string(&index_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let index: SessionsIndex = match serde_json::from_str(&content) {
+            Ok(i) => i,
+            Err(_) => continue,
+        };
+        for entry in index.entries {
+            if let Some(s) = entry.summary.filter(|s| !s.is_empty()) {
+                summaries.insert(PathBuf::from(entry.full_path), s);
+            }
+        }
+    }
+
+    for (path, data) in out.iter_mut() {
+        if let Some(s) = summaries.remove(path) {
+            data.summary = Some(s);
+        }
     }
 }
 

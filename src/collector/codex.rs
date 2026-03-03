@@ -257,6 +257,7 @@ fn parse_transcript(path: &Path) -> color_eyre::Result<TranscriptData> {
         tool_call_by_type: tool_counts,
         files_touched,
         first_user_message,
+        summary: None,
         per_model,
         duration_ms,
         turn_count,
