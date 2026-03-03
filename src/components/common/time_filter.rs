@@ -109,9 +109,14 @@ impl TimeFilter {
                 }
                 let from_date = parse_date_ymd(parts[0])?;
                 let to_date = parse_date_ymd(parts[1])?;
+                let from_str = format_date_ymd(from_date.0, from_date.1, from_date.2);
+                let to_str = format_date_ymd(to_date.0, to_date.1, to_date.2);
+                if from_str > to_str {
+                    return None;
+                }
                 Some(Self::Custom {
-                    from: format_date_ymd(from_date.0, from_date.1, from_date.2),
-                    to: format_date_ymd(to_date.0, to_date.1, to_date.2),
+                    from: from_str,
+                    to: to_str,
                 })
             }
         }
@@ -220,6 +225,11 @@ mod tests {
         );
         assert_eq!(TimeFilter::from_range_arg("garbage"), None);
         assert_eq!(TimeFilter::from_range_arg(""), None);
+        // from > to should be rejected
+        assert_eq!(
+            TimeFilter::from_range_arg("2025-03-01..2025-01-01"),
+            None
+        );
     }
 
     #[test]

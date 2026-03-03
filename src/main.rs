@@ -21,11 +21,15 @@ async fn main() -> color_eyre::Result<()> {
     crate::logging::init()?;
 
     let args = Cli::parse();
-    let initial_filter = args
-        .range
-        .as_deref()
-        .and_then(TimeFilter::from_range_arg)
-        .unwrap_or_default();
+    let initial_filter = match args.range.as_deref() {
+        Some(s) => TimeFilter::from_range_arg(s).ok_or_else(|| {
+            color_eyre::eyre::eyre!(
+                "Invalid --range value '{}'. Expected: today, 7d, 30d, or YYYY-MM-DD..YYYY-MM-DD",
+                s
+            )
+        })?,
+        None => TimeFilter::default(),
+    };
     let mut app = App::new(initial_filter)?;
     app.run().await?;
     Ok(())
