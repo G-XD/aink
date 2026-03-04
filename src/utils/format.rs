@@ -32,10 +32,30 @@ fn utc_offset_secs() -> i64 {
     let epoch_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as libc::time_t;
+        .as_secs() as i64;
+    let epoch_secs_libc = epoch_secs as libc::time_t;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&epoch_secs, &mut tm) };
-    tm.tm_gmtoff as i64
+
+    #[cfg(unix)]
+    {
+        unsafe { libc::localtime_r(&epoch_secs_libc, &mut tm) };
+        tm.tm_gmtoff as i64
+    }
+
+    #[cfg(windows)]
+    {
+        // localtime_s(tm_dest, source_time) — Windows uses reversed argument order.
+        if unsafe { libc::localtime_s(&mut tm, &epoch_secs_libc) } != 0 {
+            return 0;
+        }
+        // Windows tm has no tm_gmtoff; derive offset from local time components.
+        let days = days_from_civil(tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32);
+        let local_epoch = days as i64 * 86400
+            + tm.tm_hour as i64 * 3600
+            + tm.tm_min as i64 * 60
+            + tm.tm_sec as i64;
+        local_epoch - epoch_secs
+    }
 }
 
 /// Convert (year, month, day) to days since Unix epoch (inverse of `civil_from_days`).
