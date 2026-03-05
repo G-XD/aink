@@ -94,38 +94,63 @@ fn estimate_wrapped(text: &str, usable_w: usize) -> usize {
     n.div_ceil(usable_w).max(1)
 }
 
+/// Cheap byte-length wrap estimate for off-screen turns (avoids unicode width scan).
+/// Assumes ~2 bytes per display column on average (good enough for mixed CJK/ASCII).
+fn estimate_wrapped_fast(text: &str, usable_w: usize) -> usize {
+    if usable_w == 0 {
+        return 1;
+    }
+    // For mostly-ASCII text, len ≈ width; for CJK, len ≈ 3*width/2.
+    // Using len*2/3 as width estimate is a reasonable middle ground.
+    let estimated_width = (text.len() * 2 / 3).max(text.len().min(usable_w));
+    estimated_width.div_ceil(usable_w).max(1)
+}
+
 /// Estimate how many rendered lines a turn produces without allocating Line objects.
+/// When `fast` is true, uses byte-length heuristic instead of unicode width (for off-screen turns).
 fn estimate_turn_lines(
     turn: &ConversationTurn,
     is_expanded: bool,
     usable_w: usize,
     is_continuation: bool,
+    fast: bool,
 ) -> usize {
+    let estimate_wrap = if fast {
+        estimate_wrapped_fast as fn(&str, usize) -> usize
+    } else {
+        estimate_wrapped
+    };
+
     let mut count = if is_continuation { 1 } else { 2 }; // continuation: "···" only; normal: header + separator
 
     if turn.tool_calls.len() == 1 {
         let tc = &turn.tool_calls[0];
         let tc_width = usable_w.saturating_sub(8);
-        count += estimate_wrapped(&tc.summary, tc_width).max(1);
+        count += estimate_wrap(&tc.summary, tc_width).max(1);
     } else if turn.tool_calls.len() > 1 {
         if is_expanded {
             let tc_width = usable_w.saturating_sub(12);
             for tc in &turn.tool_calls {
-                count += estimate_wrapped(&tc.summary, tc_width).max(1);
+                count += estimate_wrap(&tc.summary, tc_width).max(1);
             }
         } else {
-            let preview = turn
-                .tool_calls
-                .iter()
-                .map(|tc| tc.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let summary_text = format!(
-                "  \u{25b8} {} tool calls ({})",
-                turn.tool_calls.len(),
-                preview
-            );
-            count += estimate_wrapped(&summary_text, usable_w).max(1);
+            // For fast mode, just estimate without building the string
+            if fast {
+                count += 1;
+            } else {
+                let preview = turn
+                    .tool_calls
+                    .iter()
+                    .map(|tc| tc.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let summary_text = format!(
+                    "  \u{25b8} {} tool calls ({})",
+                    turn.tool_calls.len(),
+                    preview
+                );
+                count += estimate_wrap(&summary_text, usable_w).max(1);
+            }
         }
     }
 
@@ -134,7 +159,7 @@ fn estimate_turn_lines(
         .lines()
         .map(|l| l.trim())
         .filter(|l| !l.is_empty())
-        .map(|l| estimate_wrapped(l, usable_w))
+        .map(|l| estimate_wrap(l, usable_w))
         .sum();
 
     if is_expanded || total_rendered <= MAX_PREVIEW_LINES {
@@ -152,14 +177,17 @@ fn estimate_turn_lines(
 /// keeping per-frame cost proportional to the viewport rather than the full
 /// conversation length.
 ///
-/// Returns `(lines, cursor_line_offset)` for auto-scrolling.
+/// Returns `(lines, cursor_line_offset, total_lines, lines_before)` where
+/// `cursor_line_offset` is the absolute line position of the cursor turn,
+/// `total_lines` is the virtual total across all turns, and `lines_before`
+/// is the number of virtual lines before the rendered window.
 pub fn detail_conversation_content(
     conversation: Option<&[ConversationTurn]>,
     expanded_sections: &HashSet<String>,
     cursor: usize,
     width: u16,
     viewport_height: u16,
-) -> (Vec<Line<'static>>, usize) {
+) -> (Vec<Line<'static>>, usize, usize, usize) {
     let w = width as usize;
     let usable = w.saturating_sub(3); // 2-char left margin + 1-char scrollbar
 
@@ -170,12 +198,14 @@ pub fn detail_conversation_content(
                 theme::fold_style(),
             ))],
             0,
+            1,
+            0,
         );
     };
 
     let total = turns.len();
     if total == 0 {
-        return (Vec::new(), 0);
+        return (Vec::new(), 0, 0, 0);
     }
 
     // Determine the window of turns to render.
@@ -183,43 +213,37 @@ pub fn detail_conversation_content(
     let win_start = cursor.saturating_sub(margin_turns);
     let win_end = (cursor + margin_turns + 1).min(total);
 
-    // Count lines for turns before the window (cheap — no allocations).
+    // Count lines for turns before the window (fast byte-length estimation).
     let lines_before: usize = turns[..win_start]
         .iter()
         .enumerate()
         .map(|(idx, turn)| {
-            let expanded = expanded_sections.contains(&format!("{}{}", SECTION_MSG_PREFIX, idx));
             let is_cont = idx > 0
                 && turn.role == ConversationRole::Assistant
                 && turns[idx - 1].role == ConversationRole::Assistant;
-            estimate_turn_lines(turn, expanded, usable, is_cont)
+            // Off-screen turns are almost never expanded; skip HashSet lookup.
+            estimate_turn_lines(turn, false, usable, is_cont, true)
         })
         .sum();
 
-    // Count lines for turns after the window.
+    // Count lines for turns after the window (fast byte-length estimation).
     let lines_after: usize = turns[win_end..]
         .iter()
         .enumerate()
         .map(|(i, turn)| {
             let idx = win_end + i;
-            let expanded = expanded_sections.contains(&format!("{}{}", SECTION_MSG_PREFIX, idx));
             let is_cont = idx > 0
                 && turn.role == ConversationRole::Assistant
                 && turns[idx - 1].role == ConversationRole::Assistant;
-            estimate_turn_lines(turn, expanded, usable, is_cont)
+            estimate_turn_lines(turn, false, usable, is_cont, true)
         })
         .sum();
 
-    // Build placeholder lines for the region above the window so that
-    // scroll offsets and the scrollbar remain correct.
-    let capacity = lines_before + lines_after + margin_turns * 2 * (AVG_TURN_LINES + 2);
+    // Only allocate Line objects for the visible window — no placeholders.
+    let capacity = margin_turns * 2 * (AVG_TURN_LINES + 2);
     let mut lines: Vec<Line<'static>> = Vec::with_capacity(capacity);
 
-    for _ in 0..lines_before {
-        lines.push(Line::from(""));
-    }
-
-    let mut cursor_line: usize = 0;
+    let mut cursor_line: usize = lines_before;
 
     // Render the visible window of turns.
     for (turn_idx, turn) in turns.iter().enumerate().take(win_end).skip(win_start) {
@@ -228,7 +252,7 @@ pub fn detail_conversation_content(
             expanded_sections.contains(&format!("{}{}", SECTION_MSG_PREFIX, turn_idx));
 
         if is_selected {
-            cursor_line = lines.len();
+            cursor_line = lines_before + lines.len();
         }
 
         // Check if this is a continuation of the previous Assistant turn.
@@ -397,10 +421,7 @@ pub fn detail_conversation_content(
         lines.push(Line::from(""));
     }
 
-    // Placeholder lines for the region below the window.
-    for _ in 0..lines_after {
-        lines.push(Line::from(""));
-    }
+    let total_lines = lines_before + lines.len() + lines_after;
 
-    (lines, cursor_line)
+    (lines, cursor_line, total_lines, lines_before)
 }
