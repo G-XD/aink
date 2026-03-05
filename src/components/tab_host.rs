@@ -156,11 +156,11 @@ impl TabHost {
             } else {
                 Style::default().fg(Color::Red)
             };
-            
+
             let para = Paragraph::new(msg.text.as_str())
                 .style(style)
                 .alignment(Alignment::Center);
-            
+
             frame.render_widget(para, area);
         }
     }
@@ -222,12 +222,12 @@ impl Component for TabHost {
                     // Invalid index, ignore
                     return Ok(None);
                 }
-                
+
                 let (path, data) = &transcripts[*index];
-                
+
                 // Get conversation data
                 let conversation = self.sessions.get_conversation(*index);
-                
+
                 // Execute export
                 match crate::exporter::export_session(path, data, conversation.as_deref()) {
                     Ok(output_path) => {

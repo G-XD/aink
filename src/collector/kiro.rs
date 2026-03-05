@@ -296,7 +296,10 @@ impl TranscriptSource for KiroSource {
                 }
             };
             match &exec.chat_session_id {
-                Some(sid) => groups.entry(sid.clone()).or_default().push((path.clone(), exec)),
+                Some(sid) => groups
+                    .entry(sid.clone())
+                    .or_default()
+                    .push((path.clone(), exec)),
                 None => ungrouped.push((path.clone(), exec)),
             }
         }
@@ -711,7 +714,11 @@ fn build_task_progress_summary(actions: &[serde_json::Value]) -> Option<String> 
             let short_name = name
                 .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.' || c == ' ')
                 .trim();
-            let short_name = if short_name.is_empty() { name.as_str() } else { short_name };
+            let short_name = if short_name.is_empty() {
+                name.as_str()
+            } else {
+                short_name
+            };
             format!("{icon} {short_name}")
         })
         .collect();
@@ -729,9 +736,7 @@ fn identify_tool_type(action_type: &str) -> Option<String> {
         "readFiles" | "readFile" | "readMultipleFiles" | "readCode" => {
             Some("file_read".to_string())
         }
-        "write" | "fsWrite" | "fsAppend" | "create" | "append" => {
-            Some("file_write".to_string())
-        }
+        "write" | "fsWrite" | "fsAppend" | "create" | "append" => Some("file_write".to_string()),
         "editCode" | "strReplace" | "replace" | "semanticRename" | "smartRelocate" => {
             Some("file_edit".to_string())
         }
@@ -777,18 +782,25 @@ fn estimate_tokens_in_entries(entries: &[serde_json::Value]) -> u64 {
     for entry in entries {
         match entry.get("type").and_then(|v| v.as_str()).unwrap_or("") {
             "text" => {
-                total_chars += entry.get("text").and_then(|v| v.as_str()).map_or(0, |s| s.len());
+                total_chars += entry
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map_or(0, |s| s.len());
             }
             "toolUseResponse" => {
-                total_chars +=
-                    entry.get("message").and_then(|v| v.as_str()).map_or(0, |s| s.len());
+                total_chars += entry
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map_or(0, |s| s.len());
             }
             "toolUse" => {
                 if let Some(args) = entry.get("args") {
                     total_chars += args.to_string().len();
                 }
-                total_chars +=
-                    entry.get("name").and_then(|v| v.as_str()).map_or(0, |s| s.len());
+                total_chars += entry
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map_or(0, |s| s.len());
             }
             _ => {}
         }
@@ -1125,11 +1137,7 @@ mod tests {
         let source = KiroSource;
         let results = source.load_transcripts(&paths);
 
-        assert_eq!(
-            results.len(),
-            2,
-            "different chatSessionIds → two sessions"
-        );
+        assert_eq!(results.len(), 2, "different chatSessionIds → two sessions");
     }
 
     #[test]
@@ -1537,12 +1545,21 @@ mod tests {
         assert_eq!(identify_tool_type("replace"), Some("file_edit".into()));
         assert_eq!(identify_tool_type("search"), Some("search".into()));
         assert_eq!(identify_tool_type("say"), Some("user_interaction".into()));
-        assert_eq!(identify_tool_type("invokeSubAgent"), Some("subagent".into()));
+        assert_eq!(
+            identify_tool_type("invokeSubAgent"),
+            Some("subagent".into())
+        );
         assert_eq!(identify_tool_type("specAgent"), Some("subagent".into()));
         assert_eq!(identify_tool_type("preWork"), Some("diagnostics".into()));
         assert_eq!(identify_tool_type("runCommand"), Some("shell".into()));
-        assert_eq!(identify_tool_type("remote_web_search"), Some("web_search".into()));
-        assert_eq!(identify_tool_type("unknownAction"), Some("unknownAction".into()));
+        assert_eq!(
+            identify_tool_type("remote_web_search"),
+            Some("web_search".into())
+        );
+        assert_eq!(
+            identify_tool_type("unknownAction"),
+            Some("unknownAction".into())
+        );
         // Non-tool actions return None
         assert_eq!(identify_tool_type("taskStatus"), None);
         assert_eq!(identify_tool_type("pbtStatus"), None);

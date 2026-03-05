@@ -540,6 +540,7 @@ impl Component for Home {
                     ("</>", "sort"),
                     ("s", "reverse"),
                     ("f", "filter"),
+                    ("e", "export"),
                     ("Enter", "detail"),
                     ("R", "refresh"),
                     ("q", "quit"),
@@ -575,11 +576,10 @@ impl Component for Home {
                                 ds.set_current_scroll(cursor_line as u16);
                             } else if cursor_line >= scroll + visible {
                                 ds.set_current_scroll(
-                                    cursor_line.saturating_sub(visible / 3) as u16,
+                                    cursor_line.saturating_sub(visible / 3) as u16
                                 );
                             }
-                            let max_scroll =
-                                total_lines.saturating_sub(visible) as u16;
+                            let max_scroll = total_lines.saturating_sub(visible) as u16;
                             let clamped = ds.current_scroll().min(max_scroll);
                             ds.set_current_scroll(clamped);
 
@@ -629,6 +629,7 @@ impl Component for Home {
                             "scroll"
                         },
                     ),
+                    ("e", "export"),
                     ("Esc/q", "back"),
                 ];
                 if ds.active_tab == DetailTab::Conversation {
