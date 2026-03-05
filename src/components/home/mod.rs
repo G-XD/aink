@@ -399,9 +399,7 @@ impl Home {
                 }
                 Some(Action::Render)
             }
-            KeyCode::Char('e') => {
-                return Some(Action::ExportSession(ds.index));
-            }
+            KeyCode::Char('e') => Some(Action::ExportSession(ds.index)),
             _ => None,
         }
     }

@@ -370,18 +370,18 @@ fn build_transcript_data(
                 continue;
             }
 
-            if action_type == "taskStatus" {
-                if let Some(task_id) = action.get("taskId").and_then(|v| v.as_str()) {
-                    if let Some(status) = action.get("taskStatus").and_then(|v| v.as_str()) {
-                        task_final_status.insert(task_id.to_string(), status.to_string());
-                    }
-                }
-                if spec_uri.is_none() {
-                    spec_uri = action
-                        .get("taskListUri")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                }
+            if action_type == "taskStatus"
+                && let Some(task_id) = action.get("taskId").and_then(|v| v.as_str())
+                && let Some(status) = action.get("taskStatus").and_then(|v| v.as_str())
+            {
+                task_final_status.insert(task_id.to_string(), status.to_string());
+            }
+
+            if spec_uri.is_none() {
+                spec_uri = action
+                    .get("taskListUri")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
             }
 
             let tool_type = match identify_tool_type(action_type) {

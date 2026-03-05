@@ -68,7 +68,7 @@ fn format_metadata(data: &TranscriptData) -> String {
     let started = data
         .start_time
         .as_deref()
-        .and_then(|ts| parse_local_datetime(ts))
+        .and_then(parse_local_datetime)
         .map(|(y, mo, d, h, mi)| format!("{:04}-{:02}-{:02} {:02}:{:02}", y, mo, d, h, mi))
         .unwrap_or_else(|| "—".to_string());
 
@@ -167,7 +167,7 @@ fn format_conversation(conversation: Option<&[ConversationTurn]>) -> String {
         let time_str = turn
             .created_at
             .as_deref()
-            .and_then(|ts| parse_local_datetime(ts))
+            .and_then(parse_local_datetime)
             .map(|(_, _, _, h, mi)| format!("{:02}:{:02}", h, mi))
             .unwrap_or_else(|| "".to_string());
 

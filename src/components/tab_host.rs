@@ -232,11 +232,11 @@ impl Component for TabHost {
                 match crate::exporter::export_session(path, data, conversation.as_deref()) {
                     Ok(output_path) => {
                         let msg = format!("✓ Exported to: {}", output_path.display());
-                        return Ok(Some(Action::ExportComplete(Ok(msg))));
+                        Ok(Some(Action::ExportComplete(Ok(msg))))
                     }
                     Err(e) => {
                         let msg = format!("✗ Export failed: {}", e);
-                        return Ok(Some(Action::ExportComplete(Err(msg))));
+                        Ok(Some(Action::ExportComplete(Err(msg))))
                     }
                 }
             }
@@ -257,7 +257,7 @@ impl Component for TabHost {
                         });
                     }
                 }
-                return Ok(Some(Action::Render));
+                Ok(Some(Action::Render))
             }
             Action::Tick => {
                 // Clear expired export messages
