@@ -151,7 +151,7 @@ fn format_conversation(conversation: Option<&[ConversationTurn]>) -> String {
             .as_deref()
             .and_then(|ts| parse_local_datetime(ts))
             .map(|(_, _, _, h, mi)| format!("{:02}:{:02}", h, mi))
-            .unwrap_or_else(|| "--:--".to_string());
+            .unwrap_or_else(|| "".to_string());
         
         md.push_str(&format!("### Turn {}/{} — {} ({})\n\n", idx + 1, total_turns, role_str, time_str));
         

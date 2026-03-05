@@ -204,11 +204,15 @@ impl TranscriptSource for KiroSource {
                                 }
                             }
                             "toolUse" => {
-                                let name = entry
+                                let raw_name = entry
                                     .get("name")
                                     .and_then(|v| v.as_str())
-                                    .unwrap_or("unknown")
-                                    .to_string();
+                                    .unwrap_or("unknown");
+                                // Filter through identify_tool_type to skip noise
+                                let name = match identify_tool_type(raw_name) {
+                                    Some(n) => n,
+                                    None => continue,
+                                };
                                 let summary = entry
                                     .get("args")
                                     .map(extract_action_summary)
@@ -1276,7 +1280,7 @@ mod tests {
         assert_eq!(turns[1].role, ConversationRole::Assistant);
         assert!(turns[1].content.contains("了解项目结构"));
         assert!(!turns[1].tool_calls.is_empty());
-        assert_eq!(turns[1].tool_calls[0].name, "listDirectory");
+        assert_eq!(turns[1].tool_calls[0].name, "directory");
     }
 
     #[test]
