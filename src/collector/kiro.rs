@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use tiktoken_rs::CoreBPE;
 use tracing::warn;
 
 use super::source::{SourceKind, TranscriptSource};
@@ -174,14 +175,13 @@ impl TranscriptSource for KiroSource {
     fn parse_transcript(&self, path: &Path) -> color_eyre::Result<TranscriptData> {
         use color_eyre::eyre::WrapErr;
 
-        // Load the primary execution file
         let content = std::fs::read_to_string(path)
             .wrap_err_with(|| format!("读取文件失败: {}", path.display()))?;
         let primary: KiroExecData = serde_json::from_str(&content)
             .wrap_err_with(|| format!("解析 JSON 失败: {}", path.display()))?;
 
-        // Collect all executions for the same chatSessionId
         let all_execs = collect_session_executions(path, &primary);
+        let bpe = tiktoken_rs::cl100k_base().expect("failed to load cl100k_base");
 
         let mut tool_counts: HashMap<String, u64> = HashMap::new();
         let mut tool_total = 0u64;
@@ -194,9 +194,18 @@ impl TranscriptSource for KiroSource {
         let mut earliest_start: Option<i64> = None;
         let mut latest_end: Option<i64> = None;
         let mut title: Option<String> = None;
+        let mut input_tokens = 0u64;
+        let mut output_tokens = 0u64;
 
         for exec in &all_execs {
-            // Accumulate actions/tools
+            // chat-agent executions duplicate context of the paired spec-generation;
+            // only count tokens from executions that actually consumed credits.
+            let has_credits = exec
+                .usage_summary
+                .as_ref()
+                .is_some_and(|u| u.iter().any(|s| s.usage.unwrap_or(0.0) > 0.0));
+
+            // Accumulate actions/tools (from all executions, no duplication concern)
             for action in &exec.actions {
                 let action_type = action
                     .get("actionType")
@@ -225,7 +234,7 @@ impl TranscriptSource for KiroSource {
                 tool_total += 1;
             }
 
-            // Accumulate messages
+            // Accumulate messages and count tokens
             if let Some(ref ctx) = exec.context {
                 for msg in &ctx.messages {
                     match msg.role.as_str() {
@@ -235,9 +244,20 @@ impl TranscriptSource for KiroSource {
                                 first_user_message = extract_text_from_entries(&msg.entries)
                                     .map(|t| truncate_message(&t, 200));
                             }
+                            if has_credits {
+                                input_tokens += count_tokens_in_entries(&msg.entries, &bpe);
+                            }
                         }
                         "bot" | "assistant" => {
                             assistant_message_count += 1;
+                            if has_credits {
+                                output_tokens += count_tokens_in_entries(&msg.entries, &bpe);
+                            }
+                        }
+                        "tool" => {
+                            if has_credits {
+                                input_tokens += count_tokens_in_entries(&msg.entries, &bpe);
+                            }
                         }
                         _ => {}
                     }
@@ -251,12 +271,10 @@ impl TranscriptSource for KiroSource {
                 }
             }
 
-            // Track model/workflow types
             if let Some(ref wt) = exec.workflow_type {
                 models.insert(wt.clone());
             }
 
-            // Track time range across all executions
             if let Some(s) = exec.start_time {
                 earliest_start = Some(earliest_start.map_or(s, |prev: i64| prev.min(s)));
             }
@@ -264,7 +282,6 @@ impl TranscriptSource for KiroSource {
                 latest_end = Some(latest_end.map_or(e, |prev: i64| prev.max(e)));
             }
 
-            // Use the first non-empty title
             if title.is_none() {
                 title = exec.title.clone().or_else(|| exec.workflow_type.clone());
             }
@@ -289,8 +306,8 @@ impl TranscriptSource for KiroSource {
 
         Ok(TranscriptData {
             source: SourceKind::Kiro,
-            input_tokens: 0,
-            output_tokens: 0,
+            input_tokens,
+            output_tokens,
             cache_creation_tokens: 0,
             cache_read_tokens: 0,
             models,
@@ -608,6 +625,30 @@ fn identify_tool_type(action_type: &str) -> String {
         "executeBash" | "controlBashProcess" => "shell".to_string(),
         _ => action_type.to_string(),
     }
+}
+
+/// Count tokens in message entries using tiktoken.
+fn count_tokens_in_entries(entries: &[serde_json::Value], bpe: &CoreBPE) -> u64 {
+    let mut total = 0u64;
+    for entry in entries {
+        let text = match entry.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+            "text" => entry.get("text").and_then(|v| v.as_str()).unwrap_or(""),
+            "toolUseResponse" => entry.get("message").and_then(|v| v.as_str()).unwrap_or(""),
+            "toolUse" => {
+                // Count tool name + serialized args
+                if let Some(args) = entry.get("args") {
+                    let s = args.to_string();
+                    total += bpe.encode_with_special_tokens(&s).len() as u64;
+                }
+                entry.get("name").and_then(|v| v.as_str()).unwrap_or("")
+            }
+            _ => continue,
+        };
+        if !text.is_empty() {
+            total += bpe.encode_with_special_tokens(text).len() as u64;
+        }
+    }
+    total
 }
 
 /// Extract text content from context message entries.
@@ -986,6 +1027,15 @@ mod tests {
         assert!(data.duration_ms > 0);
         // Credits
         assert!((data.estimated_cost_usd - 1.0).abs() < 0.001);
+        // Token counts (tiktoken-estimated from context text)
+        assert!(
+            data.input_tokens > 0,
+            "should have input tokens from human messages"
+        );
+        assert!(
+            data.output_tokens > 0,
+            "should have output tokens from bot messages"
+        );
     }
 
     #[test]
@@ -1149,6 +1199,73 @@ mod tests {
         assert_eq!(data.duration_ms, 300000); // 1300000 - 1000000
         // Files from both executions
         assert!(data.files_touched.contains(&"b.rs".to_string()));
+        // Tiktoken-counted tokens from both credit-bearing executions
+        assert!(data.input_tokens > 0);
+        assert!(data.output_tokens > 0);
+    }
+
+    #[test]
+    fn parse_skips_tokens_for_zero_credit_executions() {
+        let dir = TempDir::new().unwrap();
+        let profile_dir = dir.path().join("profile-hash");
+        let exec_dir = profile_dir.join("exec-data-hash");
+        std::fs::create_dir_all(&exec_dir).unwrap();
+
+        // chat-agent: duplicates context, 0 credits
+        let chat_agent = serde_json::json!({
+            "executionId": "ca-1",
+            "workflowType": "chat-agent",
+            "chatSessionId": "same-session",
+            "startTime": 1000000,
+            "endTime": 1000100,
+            "context": {
+                "messages": [
+                    {"role": "human", "entries": [{"type": "text", "text": "Hello world"}]},
+                    {"role": "bot", "entries": [{"type": "text", "text": "Hi"}]}
+                ]
+            },
+            "actions": []
+        });
+
+        // spec-generation: actual work, has credits
+        let spec_gen = serde_json::json!({
+            "executionId": "sg-1",
+            "workflowType": "spec-generation",
+            "chatSessionId": "same-session",
+            "startTime": 1000200,
+            "endTime": 1100000,
+            "context": {
+                "messages": [
+                    {"role": "human", "entries": [{"type": "text", "text": "Hello world"}]},
+                    {"role": "bot", "entries": [{"type": "text", "text": "Let me help you with that."}]}
+                ]
+            },
+            "actions": [
+                {"type": "AgentExecutionAction", "actionType": "readFiles", "input": {"files": [{"path": "a.rs"}]}}
+            ],
+            "usageSummary": [{"usage": 0.5, "unit": "credit"}]
+        });
+
+        write_file(
+            &exec_dir,
+            "ca1",
+            &serde_json::to_string(&chat_agent).unwrap(),
+        );
+        let path2 = write_file(&exec_dir, "sg1", &serde_json::to_string(&spec_gen).unwrap());
+
+        let source = KiroSource;
+        let data = source.parse_transcript(&path2).unwrap();
+
+        // Tokens should only come from spec-generation (the one with credits),
+        // not from chat-agent which duplicates the same context
+        let bpe = tiktoken_rs::cl100k_base().unwrap();
+        let expected_input = bpe.encode_with_special_tokens("Hello world").len() as u64;
+        let expected_output = bpe
+            .encode_with_special_tokens("Let me help you with that.")
+            .len() as u64;
+
+        assert_eq!(data.input_tokens, expected_input);
+        assert_eq!(data.output_tokens, expected_output);
     }
 
     #[test]
