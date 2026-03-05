@@ -145,6 +145,24 @@ impl Config {
             }
         }
 
+        // Auto-add a Kiro source if the default Kiro storage directory exists
+        // and no explicit Kiro source is configured.
+        if !cfg
+            .config
+            .sources
+            .iter()
+            .any(|s| s.kind == SourceKind::Kiro)
+        {
+            let kiro_dir = get_default_kiro_dir();
+            if kiro_dir.is_dir() {
+                cfg.config.sources.push(SourceConfig {
+                    kind: SourceKind::Kiro,
+                    root_dir: kiro_dir,
+                    enabled: true,
+                });
+            }
+        }
+
         for (mode, default_bindings) in default_config.keybindings.0.iter() {
             let user_bindings = cfg.keybindings.0.entry(*mode).or_default();
             for (key, cmd) in default_bindings.iter() {
@@ -213,6 +231,28 @@ pub fn get_default_codex_dir() -> PathBuf {
     home_dir()
         .map(|h| h.join(".codex").join("sessions"))
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Default root directory for Kiro session storage.
+///
+/// - macOS: `~/Library/Application Support/Kiro/User/globalStorage/kiro.kiroagent`
+/// - Windows: `%APPDATA%/Kiro/User/globalStorage/kiro.kiroagent`
+/// - Linux: `~/.config/Kiro/User/globalStorage/kiro.kiroagent`
+pub fn get_default_kiro_dir() -> PathBuf {
+    let base = if cfg!(target_os = "macos") {
+        home_dir().map(|h| h.join("Library/Application Support"))
+    } else if cfg!(target_os = "windows") {
+        env::var_os("APPDATA").map(PathBuf::from)
+    } else {
+        home_dir().map(|h| h.join(".config"))
+    };
+    base.map(|b| {
+        b.join("Kiro")
+            .join("User")
+            .join("globalStorage")
+            .join("kiro.kiroagent")
+    })
+    .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Cross-platform home directory lookup.

@@ -2,9 +2,10 @@
 logs
 target
 .vscode
+.kiro
 
 .DS_Store
 
 .env
 
-/docs
+/docs/plans/

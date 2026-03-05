@@ -231,6 +231,7 @@ pub fn source_style(kind: SourceKind) -> Style {
         SourceKind::Claude => Color::Rgb(230, 140, 60), // warm orange (Claude brand)
         SourceKind::Cursor => Color::Rgb(90, 140, 255), // blue (Cursor brand)
         SourceKind::Codex => Color::Rgb(50, 210, 130),  // green (OpenAI/Codex)
+        SourceKind::Kiro => Color::Rgb(150, 100, 255),  // purple (Kiro brand)
     };
     Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
