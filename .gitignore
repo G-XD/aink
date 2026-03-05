@@ -8,4 +8,5 @@ target
 
 .env
 
-/docs
+/docs/plans/
+/aink-exports/

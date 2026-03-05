@@ -10,6 +10,12 @@ Built with Rust and ratatui, AINK provides a fast, keyboard-driven experience fo
 
 ---
 
+## Demo
+
+![demo](docs/images/demo.gif)
+
+---
+
 ## Quick Start
 
 ### Install
@@ -187,18 +193,6 @@ Keybindings and styles can be customized in `config.json5` (see defaults in the 
 | `RUST_LOG`    | Alternative log level control   |
 
 Logs are written to the data directory (e.g. `~/.local/share/aink/aink.log` on Linux).
-
----
-
-## Build & Develop
-
-```bash
-cargo build              # Debug
-cargo build --release    # Release (optimized)
-cargo test               # Tests
-cargo clippy             # Lint
-cargo run                # Run
-```
 
 ---
 
