@@ -206,6 +206,16 @@ impl Home {
         }
     }
 
+    /// Get conversation data for a session at the given index
+    pub fn get_conversation(&self, index: usize) -> Option<Vec<ConversationTurn>> {
+        if index >= self.transcripts.len() {
+            return None;
+        }
+        let (path, data) = &self.transcripts[index];
+        self.source_for(data)
+            .and_then(|s| s.parse_conversation(path).ok())
+    }
+
     fn source_for(&self, data: &TranscriptData) -> Option<&dyn TranscriptSource> {
         self.sources
             .iter()
@@ -313,6 +323,12 @@ impl Home {
                 }
                 None
             }
+            KeyCode::Char('e') => {
+                if let Some(i) = self.table_state.selected() {
+                    return Some(Action::ExportSession(i));
+                }
+                None
+            }
             _ => None,
         }
     }
@@ -382,6 +398,9 @@ impl Home {
                     ds.toggle_section(key);
                 }
                 Some(Action::Render)
+            }
+            KeyCode::Char('e') => {
+                return Some(Action::ExportSession(ds.index));
             }
             _ => None,
         }
@@ -540,47 +559,65 @@ impl Component for Home {
 
                     detail::render_detail_header(frame, header_area, path, data, ds.active_tab);
 
-                    let content = match ds.active_tab {
-                        DetailTab::Stats => {
-                            detail::detail_stats_content(data, tab_content_area.width)
-                        }
+                    match ds.active_tab {
                         DetailTab::Conversation => {
-                            let (content, cursor_line) = detail::detail_conversation_content(
-                                self.detail_conversation.as_deref(),
-                                &ds.expanded_sections,
-                                ds.conv_cursor,
-                                tab_content_area.width,
-                                tab_content_area.height,
-                            );
+                            let (content, cursor_line, total_lines, lines_before) =
+                                detail::detail_conversation_content(
+                                    self.detail_conversation.as_deref(),
+                                    &ds.expanded_sections,
+                                    ds.conv_cursor,
+                                    tab_content_area.width,
+                                    tab_content_area.height,
+                                );
                             let visible = tab_content_area.height as usize;
                             let scroll = ds.current_scroll() as usize;
                             if cursor_line < scroll {
                                 ds.set_current_scroll(cursor_line as u16);
                             } else if cursor_line >= scroll + visible {
                                 ds.set_current_scroll(
-                                    cursor_line.saturating_sub(visible / 3) as u16
+                                    cursor_line.saturating_sub(visible / 3) as u16,
                                 );
                             }
-                            content
+                            let max_scroll =
+                                total_lines.saturating_sub(visible) as u16;
+                            let clamped = ds.current_scroll().min(max_scroll);
+                            ds.set_current_scroll(clamped);
+
+                            // Content only contains the windowed lines; compute
+                            // scroll offset relative to the window.
+                            let window_scroll =
+                                (clamped as usize).saturating_sub(lines_before) as u16;
+                            detail::render_scrollable_content(
+                                frame,
+                                tab_content_area,
+                                content,
+                                window_scroll,
+                            );
                         }
-                        DetailTab::Files => {
-                            detail::detail_files_content(data, tab_content_area.width)
+                        _ => {
+                            let content = match ds.active_tab {
+                                DetailTab::Stats => {
+                                    detail::detail_stats_content(data, tab_content_area.width)
+                                }
+                                DetailTab::Files => {
+                                    detail::detail_files_content(data, tab_content_area.width)
+                                }
+                                DetailTab::Conversation => unreachable!(),
+                            };
+                            let max_scroll = content
+                                .len()
+                                .saturating_sub(tab_content_area.height as usize)
+                                as u16;
+                            let clamped = ds.current_scroll().min(max_scroll);
+                            ds.set_current_scroll(clamped);
+                            detail::render_scrollable_content(
+                                frame,
+                                tab_content_area,
+                                content,
+                                ds.current_scroll(),
+                            );
                         }
                     };
-
-                    let max_scroll = content
-                        .len()
-                        .saturating_sub(tab_content_area.height as usize)
-                        as u16;
-                    let clamped = ds.current_scroll().min(max_scroll);
-                    ds.set_current_scroll(clamped);
-
-                    detail::render_scrollable_content(
-                        frame,
-                        tab_content_area,
-                        content,
-                        ds.current_scroll(),
-                    );
                 }
                 let mut detail_hints: Vec<(&str, &str)> = vec![
                     ("S/C/F", "tabs"),

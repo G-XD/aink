@@ -19,4 +19,9 @@ pub enum Action {
     TabSelect(usize),
     ExpandRow,
     CollapseRow,
+    /// Trigger session export with session index
+    ExportSession(usize),
+    /// Export completion feedback
+    /// Ok contains file path, Err contains error message
+    ExportComplete(Result<String, String>),
 }

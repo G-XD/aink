@@ -38,6 +38,15 @@ pub struct TabHost {
     analysis: Analysis,
     command_tx: Option<UnboundedSender<Action>>,
     filter_popup: Option<PopupState>,
+    /// Export status message (success or failure)
+    export_message: Option<ExportMessage>,
+}
+
+struct ExportMessage {
+    text: String,
+    is_success: bool,
+    /// Message creation time (used for auto-clearing)
+    created_at: std::time::Instant,
 }
 
 impl Default for TabHost {
@@ -49,6 +58,7 @@ impl Default for TabHost {
             analysis: Analysis::new(),
             command_tx: None,
             filter_popup: None,
+            export_message: None,
         }
     }
 }
@@ -62,6 +72,7 @@ impl TabHost {
             analysis: Analysis::new(),
             command_tx: None,
             filter_popup: None,
+            export_message: None,
         }
     }
 
@@ -136,6 +147,23 @@ impl TabHost {
             first_line,
         );
     }
+
+    /// Render export feedback message at the bottom of the TUI
+    fn render_export_message(&self, frame: &mut Frame, area: Rect) {
+        if let Some(ref msg) = self.export_message {
+            let style = if msg.is_success {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::Red)
+            };
+            
+            let para = Paragraph::new(msg.text.as_str())
+                .style(style)
+                .alignment(Alignment::Center);
+            
+            frame.render_widget(para, area);
+        }
+    }
 }
 
 impl Component for TabHost {
@@ -186,6 +214,67 @@ impl Component for TabHost {
                 let result = self.sessions.update(action)?;
                 self.sync_data_to_tabs();
                 Ok(result.or(Some(Action::Render)))
+            }
+            Action::ExportSession(index) => {
+                // Get session data
+                let transcripts = self.sessions.transcripts();
+                if *index >= transcripts.len() {
+                    // Invalid index, ignore
+                    return Ok(None);
+                }
+                
+                let (path, data) = &transcripts[*index];
+                
+                // Get conversation data
+                let conversation = self.sessions.get_conversation(*index);
+                
+                // Execute export
+                match crate::exporter::export_session(path, data, conversation.as_deref()) {
+                    Ok(output_path) => {
+                        let msg = format!("✓ Exported to: {}", output_path.display());
+                        return Ok(Some(Action::ExportComplete(Ok(msg))));
+                    }
+                    Err(e) => {
+                        let msg = format!("✗ Export failed: {}", e);
+                        return Ok(Some(Action::ExportComplete(Err(msg))));
+                    }
+                }
+            }
+            Action::ExportComplete(result) => {
+                match result {
+                    Ok(msg) => {
+                        self.export_message = Some(ExportMessage {
+                            text: msg.clone(),
+                            is_success: true,
+                            created_at: std::time::Instant::now(),
+                        });
+                    }
+                    Err(msg) => {
+                        self.export_message = Some(ExportMessage {
+                            text: msg.clone(),
+                            is_success: false,
+                            created_at: std::time::Instant::now(),
+                        });
+                    }
+                }
+                return Ok(Some(Action::Render));
+            }
+            Action::Tick => {
+                // Clear expired export messages
+                if let Some(ref msg) = self.export_message {
+                    let duration = if msg.is_success { 3 } else { 5 };
+                    if msg.created_at.elapsed().as_secs() >= duration {
+                        self.export_message = None;
+                        return Ok(Some(Action::Render));
+                    }
+                }
+                // Pass Tick to active tab
+                match self.active_tab {
+                    0 => self.overview.update(action),
+                    1 => self.sessions.update(action),
+                    2 => self.analysis.update(action),
+                    _ => Ok(None),
+                }
             }
             _ => match self.active_tab {
                 0 => self.overview.update(action),
@@ -267,11 +356,29 @@ impl Component for TabHost {
 
     fn draw(&mut self, frame: &mut Frame, area: Rect) -> color_eyre::Result<()> {
         if self.active_tab == 1 && self.sessions.is_in_detail_view() {
+            // In detail view, we need to handle export message separately
+            if self.export_message.is_some() {
+                let [main_area, bottom_area] =
+                    Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(area);
+                self.sessions.draw(frame, main_area)?;
+                self.render_export_message(frame, bottom_area);
+                return Ok(());
+            }
             return self.sessions.draw(frame, area);
         }
 
-        let [tab_bar_area, content_area] =
-            Layout::vertical([Constraint::Length(2), Constraint::Min(3)]).areas(area);
+        // Split layout: tab bar, content, and optional export message at bottom
+        let (tab_bar_area, content_area, bottom_area) = if self.export_message.is_some() {
+            let [tab_bar, rest] =
+                Layout::vertical([Constraint::Length(2), Constraint::Min(4)]).areas(area);
+            let [content, bottom] =
+                Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(rest);
+            (tab_bar, content, Some(bottom))
+        } else {
+            let [tab_bar, content] =
+                Layout::vertical([Constraint::Length(2), Constraint::Min(3)]).areas(area);
+            (tab_bar, content, None)
+        };
 
         tab_bar::render_tab_bar(frame, tab_bar_area, self.active_tab);
         self.render_summary(frame, tab_bar_area);
@@ -282,6 +389,11 @@ impl Component for TabHost {
             2 => self.analysis.draw(frame, content_area),
             _ => Ok(()),
         };
+
+        // Render export message at the bottom if present
+        if let Some(bottom) = bottom_area {
+            self.render_export_message(frame, bottom);
+        }
 
         // Popup overlay (rendered on top of any tab)
         if let Some(ref popup) = self.filter_popup {

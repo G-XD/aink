@@ -11,6 +11,7 @@ mod collector;
 mod components;
 mod config;
 mod errors;
+mod exporter;
 mod logging;
 mod tui;
 mod utils;

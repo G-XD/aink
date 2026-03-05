@@ -8,6 +8,7 @@ build = "build.rs"
 
 [dependencies]
 better-panic = "0.3.0"
+chrono = "0.4"
 clap = { version = "4.5.20", features = [
     "derive",
     "cargo",
@@ -19,6 +20,7 @@ clap = { version = "4.5.20", features = [
 color-eyre = "0.6.3"
 config = "0.14.0"
 crossterm = { version = "0.28.1", features = ["serde", "event-stream"] }
+dirs = "5.0"
 directories = "5.0.1"
 futures = "0.3.31"
 human-panic = "2.0.2"
@@ -44,6 +46,7 @@ unicode-width = "0.2"
 
 [dev-dependencies]
 proptest = "1.5"
+pulldown-cmark = "0.12"
 tempfile = "3.8"
 
 [build-dependencies]
