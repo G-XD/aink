@@ -53,6 +53,9 @@ pub struct DetailState {
     pub expanded_sections: HashSet<String>,
     /// Cursor position within the Conversation tab (turn index).
     pub conv_cursor: usize,
+    /// Previous cursor value — used by draw to detect cursor changes
+    /// and only auto-scroll when cursor actually moved to a new message.
+    prev_conv_cursor: Option<usize>,
 }
 
 impl DetailState {
@@ -69,6 +72,13 @@ impl DetailState {
 
     pub fn set_current_scroll(&mut self, val: u16) {
         self.tab_scrolls[self.active_tab.index()] = val;
+    }
+
+    /// Returns true if conv_cursor changed since the last call, then updates tracking.
+    pub fn take_cursor_changed(&mut self) -> bool {
+        let changed = self.prev_conv_cursor != Some(self.conv_cursor);
+        self.prev_conv_cursor = Some(self.conv_cursor);
+        changed
     }
 
     pub fn toggle_section(&mut self, key: String) {
