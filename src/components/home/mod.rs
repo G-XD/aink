@@ -6,6 +6,8 @@
 //! triggers data sync across tabs.
 
 mod detail;
+mod detail_handler;
+mod list_handler;
 pub(crate) mod table;
 mod view;
 
@@ -30,9 +32,7 @@ use crate::{
 };
 
 use crate::components::common::{footer, theme, time_filter::TimeFilter};
-use table::{
-    COLUMN_WIDTHS, selection_next, selection_previous, set_selection, table_header, table_row,
-};
+use table::{COLUMN_WIDTHS, set_selection, table_header, table_row};
 use view::{DetailState, DetailTab, ExpandState, SortColumn, SortState, View};
 
 const SPINNER_CHARS: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -227,19 +227,7 @@ impl Home {
             .map(|s| s.as_ref())
     }
 
-    fn table_next(&mut self) {
-        let len = self.transcripts.len();
-        let next = selection_next(self.table_state.selected(), len);
-        set_selection(&mut self.table_state, next);
-    }
-
-    fn table_previous(&mut self) {
-        let len = self.transcripts.len();
-        let prev = selection_previous(self.table_state.selected(), len);
-        set_selection(&mut self.table_state, prev);
-    }
-
-    fn go_back_to_list(&mut self) {
+    pub(super) fn go_back_to_list(&mut self) {
         self.view = View::List;
         self.detail_conversation = None;
     }
@@ -248,93 +236,12 @@ impl Home {
         matches!(self.view, View::Detail(_))
     }
 
-    fn enter_detail(&mut self, index: usize) {
+    pub(super) fn enter_detail(&mut self, index: usize) {
         let (path, data) = &self.transcripts[index];
         self.detail_conversation = self
             .source_for(data)
             .and_then(|s| s.parse_conversation(path).ok());
         self.view = View::Detail(DetailState::new(index));
-    }
-
-    // ── Key handling per view mode ──────────────────────────────────────
-
-    fn handle_list_key(&mut self, key: crossterm::event::KeyEvent) -> Option<Action> {
-        use crossterm::event::KeyCode;
-        match key.code {
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.table_next();
-                Some(Action::Render)
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.table_previous();
-                Some(Action::Render)
-            }
-            KeyCode::Right | KeyCode::Char('l') => {
-                if let Some(i) = self.table_state.selected()
-                    && i < self.transcripts.len()
-                    && self.transcripts[i].1.models.len() > 1
-                    && !self.expand_state.is_expanded(i)
-                {
-                    self.expand_state.toggle(i);
-                    return Some(Action::Render);
-                }
-                None
-            }
-            KeyCode::Left | KeyCode::Char('h') => {
-                if let Some(i) = self.table_state.selected()
-                    && self.expand_state.is_expanded(i)
-                {
-                    self.expand_state.toggle(i);
-                    return Some(Action::Render);
-                }
-                None
-            }
-            KeyCode::Char('>') | KeyCode::Char('.') => {
-                if let Some(next) = self.sort.column.next() {
-                    self.sort.column = next;
-                    self.apply_filter_and_sort();
-                    self.expand_state = ExpandState::default();
-                    set_selection(&mut self.table_state, Some(0));
-                    Some(Action::Render)
-                } else {
-                    None
-                }
-            }
-            KeyCode::Char('<') | KeyCode::Char(',') => {
-                if let Some(prev) = self.sort.column.prev() {
-                    self.sort.column = prev;
-                    self.apply_filter_and_sort();
-                    self.expand_state = ExpandState::default();
-                    set_selection(&mut self.table_state, Some(0));
-                    Some(Action::Render)
-                } else {
-                    None
-                }
-            }
-            KeyCode::Char('s') => {
-                self.sort.ascending = !self.sort.ascending;
-                self.apply_filter_and_sort();
-                self.expand_state = ExpandState::default();
-                set_selection(&mut self.table_state, Some(0));
-                Some(Action::Render)
-            }
-            KeyCode::Enter => {
-                if let Some(i) = self.table_state.selected()
-                    && i < self.transcripts.len()
-                {
-                    self.enter_detail(i);
-                    return Some(Action::Render);
-                }
-                None
-            }
-            KeyCode::Char('e') => {
-                if let Some(i) = self.table_state.selected() {
-                    return Some(Action::ExportSession(i));
-                }
-                None
-            }
-            _ => None,
-        }
     }
 }
 
@@ -396,174 +303,9 @@ impl Component for Home {
         &mut self,
         key: crossterm::event::KeyEvent,
     ) -> color_eyre::Result<Option<Action>> {
-        use crossterm::event::KeyCode;
-
-        let action = match &mut self.view {
+        let action = match &self.view {
             View::List => self.handle_list_key(key),
-            View::Detail(ds) => {
-                let conv_len = self.detail_conversation.as_ref().map_or(0, |c| c.len());
-
-                match key.code {
-                    KeyCode::Esc | KeyCode::Char('q') => {
-                        self.go_back_to_list();
-                        Some(Action::Render)
-                    }
-                    KeyCode::Char('S') => {
-                        ds.active_tab = DetailTab::Stats;
-                        Some(Action::Render)
-                    }
-                    KeyCode::Char('C') => {
-                        ds.active_tab = DetailTab::Conversation;
-                        Some(Action::Render)
-                    }
-                    KeyCode::Char('F') => {
-                        ds.active_tab = DetailTab::Files;
-                        Some(Action::Render)
-                    }
-                    KeyCode::Tab => {
-                        ds.active_tab = ds.active_tab.next();
-                        Some(Action::Render)
-                    }
-                    KeyCode::BackTab => {
-                        ds.active_tab = ds.active_tab.prev();
-                        Some(Action::Render)
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if ds.active_tab == DetailTab::Conversation && conv_len > 0 {
-                            // Handle upward navigation in conversation view
-                            if ds.conv_cursor == 0 {
-                                // Already at first message, just scroll up
-                                let s = ds.current_scroll();
-                                ds.set_current_scroll(s.saturating_sub(1));
-                            } else if let Some(conv) = self.detail_conversation.as_deref() {
-                                let viewport_height = self.last_render_height.unwrap_or(20);
-                                let width = self.last_render_width.unwrap_or(80);
-                                let visible = viewport_height as usize;
-                                let (_, cursor_line, _, _) = detail::detail_conversation_content(
-                                    Some(conv),
-                                    &ds.expanded_sections,
-                                    ds.conv_cursor,
-                                    width,
-                                    viewport_height,
-                                );
-
-                                let scroll = ds.current_scroll() as usize;
-
-                                if scroll <= cursor_line {
-                                    // At top of current message — jump to previous message.
-                                    ds.conv_cursor = ds.conv_cursor.saturating_sub(1);
-
-                                    let (_, prev_cursor_line, _, _) =
-                                        detail::detail_conversation_content(
-                                            Some(conv),
-                                            &ds.expanded_sections,
-                                            ds.conv_cursor,
-                                            width,
-                                            viewport_height,
-                                        );
-
-                                    if prev_cursor_line < scroll {
-                                        // Previous message is above viewport — show its
-                                        // bottom so user can scroll upward through it.
-                                        let bottom_scroll = cursor_line.saturating_sub(visible);
-                                        ds.set_current_scroll(
-                                            bottom_scroll.max(prev_cursor_line) as u16
-                                        );
-                                    }
-                                    // Otherwise prev message is already visible; keep scroll.
-                                } else {
-                                    // Still can scroll up within current message
-                                    ds.set_current_scroll(scroll.saturating_sub(1) as u16);
-                                }
-                            } else {
-                                ds.conv_cursor = ds.conv_cursor.saturating_sub(1);
-                            }
-                        } else {
-                            let s = ds.current_scroll();
-                            ds.set_current_scroll(s.saturating_sub(1));
-                        }
-                        Some(Action::Render)
-                    }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if ds.active_tab == DetailTab::Conversation && conv_len > 0 {
-                            // Handle downward navigation in conversation view
-                            if ds.conv_cursor >= conv_len.saturating_sub(1) {
-                                // Already at last message, just scroll down
-                                let s = ds.current_scroll();
-                                ds.set_current_scroll(s.saturating_add(1));
-                            } else if let Some(conv) = self.detail_conversation.as_deref() {
-                                let viewport_height = self.last_render_height.unwrap_or(20);
-                                let visible = viewport_height as usize;
-                                let scroll = ds.current_scroll() as usize;
-
-                                // Get current view's total_lines to calculate max_scroll
-                                let (_, _current_start, total_lines, _) =
-                                    detail::detail_conversation_content(
-                                        Some(conv),
-                                        &ds.expanded_sections,
-                                        ds.conv_cursor,
-                                        self.last_render_width.unwrap_or(80),
-                                        viewport_height,
-                                    );
-
-                                // Calculate max_scroll - same as render logic
-                                let max_scroll = total_lines.saturating_sub(visible);
-
-                                // Get next message start position
-                                let (_, next_start, _, _) = detail::detail_conversation_content(
-                                    Some(conv),
-                                    &ds.expanded_sections,
-                                    ds.conv_cursor + 1,
-                                    self.last_render_width.unwrap_or(80),
-                                    viewport_height,
-                                );
-
-                                // Jump to next message if:
-                                // 1. Next message is visible in viewport, OR
-                                // 2. We've reached max_scroll (can't scroll further)
-                                if next_start < scroll + visible || scroll >= max_scroll {
-                                    ds.conv_cursor = (ds.conv_cursor + 1).min(conv_len - 1);
-                                    // If next message is below viewport, scroll to it
-                                    if next_start >= scroll + visible {
-                                        ds.set_current_scroll(next_start as u16);
-                                    }
-                                } else {
-                                    // Can still scroll down
-                                    ds.set_current_scroll((scroll + 1) as u16);
-                                }
-                            } else {
-                                // Fallback: just move cursor
-                                ds.conv_cursor = (ds.conv_cursor + 1).min(conv_len - 1);
-                            }
-                        } else {
-                            let s = ds.current_scroll();
-                            ds.set_current_scroll(s.saturating_add(1));
-                        }
-                        Some(Action::Render)
-                    }
-                    KeyCode::Enter => {
-                        if ds.active_tab == DetailTab::Conversation {
-                            let key = format!("{}{}", detail::SECTION_MSG_PREFIX, ds.conv_cursor);
-                            ds.toggle_section(key);
-                            // Snap scroll to cursor after toggle so the viewport
-                            // doesn't jump when a tall expanded message collapses.
-                            if let Some(conv) = self.detail_conversation.as_deref() {
-                                let (_, cursor_line, _, _) = detail::detail_conversation_content(
-                                    Some(conv),
-                                    &ds.expanded_sections,
-                                    ds.conv_cursor,
-                                    self.last_render_width.unwrap_or(80),
-                                    self.last_render_height.unwrap_or(20),
-                                );
-                                ds.set_current_scroll(cursor_line as u16);
-                            }
-                        }
-                        Some(Action::Render)
-                    }
-                    KeyCode::Char('e') => Some(Action::ExportSession(ds.index)),
-                    _ => None,
-                }
-            }
+            View::Detail(_) => self.handle_detail_key(key),
         };
         Ok(action)
     }
