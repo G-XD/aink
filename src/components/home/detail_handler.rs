@@ -71,6 +71,13 @@ impl Home {
                     None
                 }
             }
+            KeyCode::Char('c') => {
+                if let View::Detail(ds) = &self.view {
+                    Some(Action::CopyResumeCommand(ds.index))
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }

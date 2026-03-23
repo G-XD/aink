@@ -24,4 +24,8 @@ pub enum Action {
     /// Export completion feedback
     /// Ok contains file path, Err contains error message
     ExportComplete(Result<String, String>),
+    /// Copy resume command to clipboard for session at index
+    CopyResumeCommand(usize),
+    /// Resume-command copy feedback
+    CopyComplete(Result<String, String>),
 }

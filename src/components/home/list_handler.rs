@@ -84,6 +84,12 @@ impl Home {
                 }
                 None
             }
+            KeyCode::Char('c') => {
+                if let Some(i) = self.table_state.selected() {
+                    return Some(Action::CopyResumeCommand(i));
+                }
+                None
+            }
             _ => None,
         }
     }

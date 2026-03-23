@@ -259,6 +259,49 @@ impl Component for TabHost {
                 }
                 Ok(Some(Action::Render))
             }
+            Action::CopyResumeCommand(index) => {
+                let transcripts = self.sessions.transcripts();
+                if *index >= transcripts.len() {
+                    return Ok(None);
+                }
+                let (path, data) = &transcripts[*index];
+                match crate::utils::resume::resume_command(data.source, path) {
+                    Some(cmd) => match cli_clipboard::set_contents(cmd.clone()) {
+                        Ok(()) => {
+                            let msg = format!("✓ Copied: {cmd}");
+                            Ok(Some(Action::CopyComplete(Ok(msg))))
+                        }
+                        Err(e) => {
+                            let msg = format!("✗ Clipboard error: {e}");
+                            Ok(Some(Action::CopyComplete(Err(msg))))
+                        }
+                    },
+                    None => {
+                        let msg =
+                            "✗ Resume not supported for this source".to_string();
+                        Ok(Some(Action::CopyComplete(Err(msg))))
+                    }
+                }
+            }
+            Action::CopyComplete(result) => {
+                match result {
+                    Ok(msg) => {
+                        self.export_message = Some(ExportMessage {
+                            text: msg.clone(),
+                            is_success: true,
+                            created_at: std::time::Instant::now(),
+                        });
+                    }
+                    Err(msg) => {
+                        self.export_message = Some(ExportMessage {
+                            text: msg.clone(),
+                            is_success: false,
+                            created_at: std::time::Instant::now(),
+                        });
+                    }
+                }
+                Ok(Some(Action::Render))
+            }
             Action::Tick => {
                 // Clear expired export messages
                 if let Some(ref msg) = self.export_message {
