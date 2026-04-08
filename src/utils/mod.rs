@@ -3,3 +3,4 @@
 pub mod format;
 pub mod prices;
 pub mod project_name;
+pub mod resume;

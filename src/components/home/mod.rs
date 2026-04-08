@@ -379,6 +379,7 @@ impl Component for Home {
                     ("s", "reverse"),
                     ("f", "filter"),
                     ("e", "export"),
+                    ("c", "copy resume"),
                     ("Enter", "detail"),
                     ("R", "refresh"),
                     ("q", "quit"),
@@ -475,6 +476,7 @@ impl Component for Home {
                         },
                     ),
                     ("e", "export"),
+                    ("c", "copy resume"),
                     ("Esc/q", "back"),
                 ];
                 if ds.active_tab == DetailTab::Conversation {
